@@ -1,13 +1,27 @@
 "use client";
 
 import { xai } from "@ai-sdk/xai";
-import { experimental_useRealtime } from "@ai-sdk/react";
+import {
+  Experimental_AbstractRealtimeSession,
+  type Experimental_RealtimeServerEvent,
+  type Experimental_RealtimeSessionOptions,
+  type Experimental_RealtimeState,
+  type Experimental_RealtimeStatus,
+  type UIMessage,
+} from "ai";
 import { MicIcon, MicOffIcon, PhoneIcon, PhoneOffIcon } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { XAI_VOICE_MODEL } from "@/lib/ai/realtime";
+import { realtimeInstructions, XAI_VOICE_MODEL } from "@/lib/ai/realtime";
 import { cn } from "@/lib/utils";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -19,40 +33,187 @@ const statusLabels = {
   error: "Error",
 } as const;
 
+const fideToolNames = new Set([
+  "list_world_models",
+  "list_views",
+  "get_view",
+  "run_view",
+]);
+
+type RealtimeStateKey = keyof Experimental_RealtimeState;
+
+class VoiceRealtimeSession extends Experimental_AbstractRealtimeSession {
+  private callbacks: {
+    [K in RealtimeStateKey]: Set<() => void>;
+  } = {
+    status: new Set(),
+    messages: new Set(),
+    events: new Set(),
+    isCapturing: new Set(),
+    isPlaying: new Set(),
+  };
+
+  get status(): Experimental_RealtimeStatus {
+    return this.state.status;
+  }
+
+  get messages(): UIMessage[] {
+    return this.state.messages;
+  }
+
+  get events(): Experimental_RealtimeServerEvent[] {
+    return this.state.events;
+  }
+
+  get isCapturing(): boolean {
+    return this.state.isCapturing;
+  }
+
+  get isPlaying(): boolean {
+    return this.state.isPlaying;
+  }
+
+  subscribe(key: RealtimeStateKey, onChange: () => void): () => void {
+    this.callbacks[key].add(onChange);
+
+    return () => {
+      this.callbacks[key].delete(onChange);
+    };
+  }
+
+  protected setState<K extends RealtimeStateKey>(
+    key: K,
+    value: Experimental_RealtimeState[K]
+  ): void {
+    this.state = { ...this.state, [key]: value };
+    this.callbacks[key].forEach((callback) => callback());
+  }
+}
+
+function useVoiceRealtime(options: Experimental_RealtimeSessionOptions) {
+  const sessionRef = useRef<VoiceRealtimeSession | null>(null);
+
+  if (!sessionRef.current) {
+    sessionRef.current = new VoiceRealtimeSession(options);
+  }
+
+  const session = sessionRef.current;
+
+  useEffect(() => {
+    session.onToolCall = options.onToolCall;
+    session.onEvent = options.onEvent;
+    session.onError = options.onError;
+  }, [options.onToolCall, options.onEvent, options.onError, session]);
+
+  useEffect(() => {
+    return () => {
+      session.disconnect();
+      session.stopAudioCapture();
+      session.stopPlayback();
+    };
+  }, [session]);
+
+  const status = useSyncExternalStore(
+    useCallback((cb) => session.subscribe("status", cb), [session]),
+    () => session.status,
+    () => session.status
+  );
+  const messages = useSyncExternalStore(
+    useCallback((cb) => session.subscribe("messages", cb), [session]),
+    () => session.messages,
+    () => session.messages
+  );
+  const isCapturing = useSyncExternalStore(
+    useCallback((cb) => session.subscribe("isCapturing", cb), [session]),
+    () => session.isCapturing,
+    () => session.isCapturing
+  );
+  const isPlaying = useSyncExternalStore(
+    useCallback((cb) => session.subscribe("isPlaying", cb), [session]),
+    () => session.isPlaying,
+    () => session.isPlaying
+  );
+
+  return {
+    status,
+    messages,
+    isCapturing,
+    isPlaying,
+    connect: session.connect.bind(session),
+    disconnect: session.disconnect.bind(session),
+    sendTextMessage: session.sendTextMessage.bind(session),
+    startAudioCapture: session.startAudioCapture.bind(session),
+    stopAudioCapture: session.stopAudioCapture.bind(session),
+    stopPlayback: session.stopPlayback.bind(session),
+  };
+}
+
 export function RealtimeVoiceTest() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  const realtime = experimental_useRealtime({
-    model: xai.experimental_realtime(XAI_VOICE_MODEL),
+  const model = useMemo(
+    () => xai.experimental_realtime(XAI_VOICE_MODEL),
+    []
+  );
+
+  const sessionConfig = useMemo(
+    () => ({
+      instructions: realtimeInstructions,
+      inputAudioTranscription: {},
+      turnDetection: { type: "server-vad" as const },
+    }),
+    []
+  );
+
+  const handleToolCall = useCallback<
+    NonNullable<Experimental_RealtimeSessionOptions["onToolCall"]>
+  >(async ({ toolCall }) => {
+    if (toolCall.toolName === "getWeather") {
+      const response = await fetch(`${basePath}/api/realtime/weather`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toolCall.args),
+      });
+
+      if (!response.ok) {
+        throw new Error("Weather lookup failed");
+      }
+
+      return response.json();
+    }
+
+    if (fideToolNames.has(toolCall.toolName)) {
+      const response = await fetch(`${basePath}/api/realtime/fide-tool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolName: toolCall.toolName,
+          args: toolCall.args,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Fide MCP tool call failed");
+      }
+
+      return response.json();
+    }
+  }, []);
+
+  const handleRealtimeError = useCallback((nextError: Error) => {
+    setError(nextError.message);
+  }, []);
+
+  const realtime = useVoiceRealtime({
+    model,
     api: {
       token: `${basePath}/api/realtime/setup`,
     },
-    sessionConfig: {
-      instructions:
-        "You are a helpful voice assistant. Be concise and conversational.",
-      inputAudioTranscription: {},
-      turnDetection: { type: "server-vad" },
-    },
-    onToolCall: async ({ toolCall }) => {
-      if (toolCall.toolName === "getWeather") {
-        const response = await fetch(`${basePath}/api/realtime/weather`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toolCall.args),
-        });
-
-        if (!response.ok) {
-          throw new Error("Weather lookup failed");
-        }
-
-        return response.json();
-      }
-    },
-    onError: (nextError) => {
-      setError(nextError.message);
-    },
+    sessionConfig,
+    onToolCall: handleToolCall,
+    onError: handleRealtimeError,
   });
 
   const stopMediaStream = useCallback(() => {
