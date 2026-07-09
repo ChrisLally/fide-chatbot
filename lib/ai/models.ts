@@ -2,7 +2,7 @@ export const DEFAULT_CHAT_MODEL = "global.anthropic.claude-haiku-4-5-20251001-v1
 
 export const titleModel = {
   id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-  name: "Taylor 1.0",
+  name: "Taylor 2.0",
   provider: "amazon-bedrock",
   description: "Fast model for title generation",
 };
@@ -24,7 +24,7 @@ export type ChatModel = {
 export const chatModels: ChatModel[] = [
   {
     id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    name: "Taylor 1.0",
+    name: "Taylor 2.0",
     provider: "amazon-bedrock",
     description: "Fast, capable model with tool use",
     capabilities: { tools: true, vision: true, reasoning: false },

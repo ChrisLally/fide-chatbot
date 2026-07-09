@@ -51,6 +51,10 @@ import { type PostRequestBody, postRequestBodySchema } from "./schema";
 
 export const maxDuration = 60;
 
+const maxChatSteps = 10;
+const toolLimitFallbackText =
+  "I gathered more data than I can finish processing in one response. Ask me to continue and I’ll pick up from here.";
+
 function getStreamContext() {
   try {
     return createResumableStreamContext({ waitUntil: after });
@@ -249,6 +253,11 @@ export async function POST(request: Request) {
           ? (Object.keys(tools) as Array<keyof typeof tools & string>)
           : undefined;
 
+        let completedSteps = 0;
+        let finalStepText = "";
+        let finalStepToolCalls = 0;
+        let finalFinishReason: string | undefined;
+
         const result = streamText({
           model: getLanguageModel(chatModel),
           system: systemPrompt({
@@ -257,9 +266,15 @@ export async function POST(request: Request) {
             supportsFideMcp: fideMcpEnabled && Object.keys(fideTools).length > 0,
           }),
           messages: modelMessages,
-          stopWhen: stepCountIs(5),
+          stopWhen: stepCountIs(maxChatSteps),
           activeTools,
           tools,
+          onStepEnd: (step) => {
+            completedSteps += 1;
+            finalStepText = step.text;
+            finalStepToolCalls = step.toolCalls.length;
+            finalFinishReason = step.finishReason;
+          },
           onFinish: async () => {
             await mcpClient?.close().catch(() => undefined);
           },
@@ -269,9 +284,29 @@ export async function POST(request: Request) {
           },
         });
 
-        dataStream.merge(
-          result.toUIMessageStream({ sendReasoning: isReasoningModel })
-        );
+        for await (const chunk of result.toUIMessageStream<ChatMessage>({
+          sendReasoning: isReasoningModel,
+        })) {
+          dataStream.write(chunk);
+        }
+
+        if (
+          completedSteps >= maxChatSteps &&
+          finalFinishReason === "tool-calls" &&
+          finalStepToolCalls > 0 &&
+          finalStepText.trim().length === 0
+        ) {
+          const textId = generateId();
+          dataStream.write({ type: "start-step" });
+          dataStream.write({ type: "text-start", id: textId });
+          dataStream.write({
+            type: "text-delta",
+            id: textId,
+            delta: toolLimitFallbackText,
+          });
+          dataStream.write({ type: "text-end", id: textId });
+          dataStream.write({ type: "finish-step" });
+        }
 
         if (titlePromise) {
           try {

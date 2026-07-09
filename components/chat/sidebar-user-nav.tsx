@@ -4,6 +4,7 @@ import { ChevronUp } from "lucide-react";
 import type { User } from "next-auth";
 import { signOut, useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +32,7 @@ function emailToHue(email: string): number {
 export function SidebarUserNav({ user }: { user: User }) {
   const { data, status } = useSession();
   const { setTheme, resolvedTheme } = useTheme();
+  const router = useRouter();
 
   const isGuest = guestRegex.test(data?.user?.email ?? "");
 
@@ -87,11 +89,9 @@ export function SidebarUserNav({ user }: { user: User }) {
             <DropdownMenuItem
               asChild
               data-testid="user-nav-item-auth"
-              disabled={isGuest}
             >
               <button
-                className="w-full text-[13px] disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isGuest}
+                className="w-full text-[13px]"
                 onClick={() => {
                   if (status === "loading") {
                     toast({
@@ -104,6 +104,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                   }
 
                   if (isGuest) {
+                    router.push("/login");
                     return;
                   }
 

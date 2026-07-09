@@ -52,13 +52,16 @@ export default function Page() {
       <AuthForm action={handleSubmit} defaultEmail={email}>
         <SubmitButton isSuccessful={isSuccessful}>Sign in</SubmitButton>
         <p className="text-center text-[13px] text-muted-foreground">
-          {"No account? "}
+          No account? Contact the{" "}
           <Link
             className="text-foreground underline-offset-4 hover:underline"
-            href="/register"
+            href="https://reeflabs.io"
+            rel="noreferrer"
+            target="_blank"
           >
-            Sign up
+            Reef Labs
           </Link>
+          {" team"}
         </p>
       </AuthForm>
     </>
