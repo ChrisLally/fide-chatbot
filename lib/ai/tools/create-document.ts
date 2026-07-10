@@ -21,7 +21,7 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create an artifact. You MUST specify kind: use 'code' for any programming/algorithm request (creates a script), 'text' for essays/writing (creates a document), 'sheet' for spreadsheets/data.",
+      "Create a complete artifact. The artifact content is generated, saved, and shown to the user by this tool. After this tool succeeds, do not call editDocument or updateDocument unless the user explicitly asks for changes.",
     inputSchema: z.object({
       title: z.string().describe("The title of the artifact"),
       kind: z
@@ -82,8 +82,8 @@ export const createDocument = ({
         kind,
         content:
           kind === "code"
-            ? "A script was created and is now visible to the user."
-            : "A document was created and is now visible to the user.",
+            ? "A complete script was generated, saved, and is now visible to the user. Do not call editDocument or updateDocument unless the user explicitly asks for changes."
+            : "A complete document was generated, saved, and is now visible to the user. Do not call editDocument or updateDocument unless the user explicitly asks for changes.",
       };
     },
   });

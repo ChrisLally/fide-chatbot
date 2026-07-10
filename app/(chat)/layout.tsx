@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import Script from "next/script";
 import { Suspense } from "react";
 import { Toaster } from "sonner";
@@ -7,6 +8,7 @@ import { DataStreamProvider } from "@/components/chat/data-stream-provider";
 import { ChatShell } from "@/components/chat/shell";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ActiveChatProvider } from "@/hooks/use-active-chat";
+import { isDevelopmentEnvironment } from "@/lib/constants";
 import { auth } from "../(auth)/auth";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -27,6 +29,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
 async function SidebarShell({ children }: { children: React.ReactNode }) {
   const [session, cookieStore] = await Promise.all([auth(), cookies()]);
+
+  if (!session?.user && !isDevelopmentEnvironment) {
+    const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+    redirect(`${base}/login`);
+  }
+
   const isCollapsed = cookieStore.get("sidebar_state")?.value !== "true";
 
   return (

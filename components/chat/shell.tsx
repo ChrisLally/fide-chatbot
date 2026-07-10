@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +53,13 @@ export function ChatShell() {
   );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
+  const [isWorldModelVisible, setIsWorldModelVisible] = useState(false);
   const { setArtifact } = useArtifact();
+  const isRightPanelVisible = isArtifactVisible || isWorldModelVisible;
+
+  const openWorldModelPanel = useCallback(() => {
+    setIsWorldModelVisible(true);
+  }, []);
 
   const stopRef = useRef(stop);
   stopRef.current = stop;
@@ -64,6 +70,7 @@ export function ChatShell() {
       prevChatIdRef.current = chatId;
       stopRef.current();
       setArtifact(initialArtifactData);
+      setIsWorldModelVisible(false);
       setEditingMessage(null);
       setAttachments([]);
     }
@@ -75,12 +82,15 @@ export function ChatShell() {
         <div
           className={cn(
             "flex min-w-0 flex-col bg-sidebar transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-            isArtifactVisible ? "w-[40%]" : "w-full"
+            isRightPanelVisible ? "w-[40%]" : "w-full"
           )}
         >
           <ChatHeader
             chatId={chatId}
             isReadonly={isReadonly}
+            onOpenWorldModel={
+              isRightPanelVisible ? undefined : openWorldModelPanel
+            }
             selectedVisibilityType={visibilityType}
           />
 
@@ -155,6 +165,7 @@ export function ChatShell() {
           chatId={chatId}
           input={input}
           isReadonly={isReadonly}
+          isWorldModelVisible={isWorldModelVisible}
           messages={messages}
           regenerate={regenerate}
           selectedModelId={currentModelId}
@@ -163,6 +174,7 @@ export function ChatShell() {
           setAttachments={setAttachments}
           setInput={setInput}
           setMessages={setMessages}
+          setWorldModelVisible={setIsWorldModelVisible}
           status={status}
           stop={stop}
           votes={votes}

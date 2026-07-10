@@ -1,7 +1,8 @@
 import { ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 import { SparklesIcon } from "@/components/chat/icons";
-import { Preview } from "@/components/chat/preview";
+
+const logoSrc = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/images/catalina-quest-logo-white.png`;
 
 export default function AuthLayout({
   children,
@@ -40,8 +41,18 @@ export default function AuthLayout({
             Reef Labs
           </Link>
         </div>
-        <div className="flex-1 pt-4">
-          <Preview />
+        <div className="flex flex-1 items-center justify-center pr-12">
+          <div className="flex flex-col items-center gap-6 text-center">
+            {/* Plain img keeps the demo basePath/assetPrefix behavior simple. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt="Catalina Quest"
+              className="h-auto w-72 invert dark:invert-0"
+              height={120}
+              src={logoSrc}
+              width={480}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -20,18 +20,29 @@ export async function proxy(request: NextRequest) {
   });
 
   const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const loginPath = "/demo/login";
+  const normalizedPathname =
+    base && pathname.startsWith(base)
+      ? pathname.slice(base.length) || "/"
+      : pathname;
+  const isApiRoute = normalizedPathname.startsWith("/api");
+  const isAuthPage = ["/login", "/register"].includes(normalizedPathname);
 
   if (!token) {
-    const redirectUrl = encodeURIComponent(new URL(request.url).pathname);
+    if (isDevelopmentEnvironment || isApiRoute || isAuthPage) {
+      return NextResponse.next();
+    }
 
-    return NextResponse.redirect(
-      new URL(`${base}/api/auth/guest?redirectUrl=${redirectUrl}`, request.url)
-    );
+    return NextResponse.redirect(new URL(loginPath, request.url));
   }
 
   const isGuest = guestRegex.test(token?.email ?? "");
 
-  if (token && !isGuest && ["/login", "/register"].includes(pathname)) {
+  if (
+    token &&
+    !isGuest &&
+    ["/login", "/register"].includes(normalizedPathname)
+  ) {
     return NextResponse.redirect(new URL(`${base}/`, request.url));
   }
 
