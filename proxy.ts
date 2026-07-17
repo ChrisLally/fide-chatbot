@@ -20,7 +20,6 @@ export async function proxy(request: NextRequest) {
   });
 
   const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-  const loginPath = "/demo/login";
   const normalizedPathname =
     base && pathname.startsWith(base)
       ? pathname.slice(base.length) || "/"
@@ -29,11 +28,16 @@ export async function proxy(request: NextRequest) {
   const isAuthPage = ["/login", "/register"].includes(normalizedPathname);
 
   if (!token) {
-    if (isDevelopmentEnvironment || isApiRoute || isAuthPage) {
+    // Let auth pages, API routes, and the guest mint endpoint through.
+    // Everything else gets an automatic guest session.
+    if (isApiRoute || isAuthPage) {
       return NextResponse.next();
     }
 
-    return NextResponse.redirect(new URL(loginPath, request.url));
+    const redirectUrl = encodeURIComponent(normalizedPathname);
+    return NextResponse.redirect(
+      new URL(`${base}/api/auth/guest?redirectUrl=${redirectUrl}`, request.url)
+    );
   }
 
   const isGuest = guestRegex.test(token?.email ?? "");
