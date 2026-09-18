@@ -1,6 +1,5 @@
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { formatDistance } from "date-fns";
-import equal from "fast-deep-equal";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeftIcon, DatabaseIcon, FileTextIcon, XIcon } from "lucide-react";
 import {
@@ -20,11 +19,21 @@ import { imageArtifact } from "@/artifacts/image/client";
 import { sheetArtifact } from "@/artifacts/sheet/client";
 import { textArtifact } from "@/artifacts/text/client";
 import { initialArtifactData, useArtifact } from "@/hooks/use-artifact";
-import type { Document, Vote } from "@/lib/db/schema";
+import { useContextNav } from "@/hooks/use-context-nav";
+import type { Document } from "@/lib/db/schema";
+import type { ContextCategory } from "@/lib/fide/context-nav";
+import {
+  extractRows,
+  normalizeContextRow,
+  readPlaceOpenId,
+  readString,
+  type TravelContextItem,
+} from "@/lib/fide/travel-context";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn, fetcher } from "@/lib/utils";
-import { useSidebar } from "../ui/sidebar";
 import { ArtifactActions } from "./artifact-actions";
+import { ArtifactCloseButton } from "./artifact-close-button";
+import { ContextDataUpload } from "./context-data-upload";
 import { LoaderIcon } from "./icons";
 import { Toolbar } from "./toolbar";
 import { VersionFooter } from "./version-footer";
@@ -53,13 +62,8 @@ export type UIArtifact = {
   };
 };
 
-type ContextItem = {
-  id: string;
-  name: string;
-  filter: string;
-  subtitle: string;
-  description: string;
-  tags: string[];
+type ContextItem = Omit<TravelContextItem, "kind" | "raw"> & {
+  kind?: TravelContextItem["kind"];
   raw?: Record<string, unknown>;
 };
 
@@ -70,263 +74,28 @@ type ContextQueryResponse = {
 const contextListQueries = {
   Hotels: "hotels",
   Activities: "activities",
+  Attractions: "attractions",
+  Itineraries: "itineraries",
+  Collections: "collections",
   Destinations: "destinations",
   Transportation: "transportation",
-} as const;
+} as const satisfies Record<ContextCategory, string>;
 
 const contextDetailQueries = {
   Hotels: { paramName: "hotel_iri", query: "hotelDetail" },
   Activities: { paramName: "activity_iri", query: "activityDetail" },
+  Attractions: { paramName: "attraction_iri", query: "attractionDetail" },
+  Itineraries: { paramName: "itinerary_iri", query: "itineraryDetail" },
+  Collections: { paramName: "collection_iri", query: "collectionDetail" },
   Destinations: { paramName: "place_iri", query: "destinationDetail" },
   Transportation: {
     paramName: "option_iri",
     query: "transportationDetail",
   },
-} as const;
-
-type ContextCategory = keyof typeof contextListQueries;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function extractRows(value: unknown): Record<string, unknown>[] {
-  if (Array.isArray(value)) {
-    return value.filter(isRecord);
-  }
-
-  if (!isRecord(value)) {
-    return [];
-  }
-
-  const candidates = [
-    value.rows,
-    value.data,
-    value.items,
-    value.records,
-    isRecord(value.result) ? value.result.rows : undefined,
-    isRecord(value.result) ? value.result.data : undefined,
-    value.result,
-  ];
-
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate.filter(isRecord);
-    }
-  }
-
-  return [];
-}
-
-function readString(
-  row: Record<string, unknown>,
-  keys: string[],
-  fallback = ""
-) {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-    if (typeof value === "number") {
-      return String(value);
-    }
-  }
-  return fallback;
-}
-
-function readTags(row: Record<string, unknown>, keys: string[]) {
-  const tags = new Set<string>();
-
-  for (const key of keys) {
-    const value = row[key];
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (typeof item === "string" && item.trim()) {
-          tags.add(item.trim());
-        }
-      }
-    } else if (typeof value === "string" && value.trim()) {
-      for (const item of value.split(",")) {
-        if (item.trim()) {
-          tags.add(item.trim());
-        }
-      }
-    }
-  }
-
-  return Array.from(tags).slice(0, 6);
-}
-
-function normalizeHotelRow(
-  row: Record<string, unknown>,
-  index: number
-): ContextItem {
-  const name = readString(
-    row,
-    ["hotel", "name", "hotel_name", "display_name", "title"],
-    `Hotel ${index + 1}`
-  );
-  const id = readString(
-    row,
-    ["hotel_iri", "id", "hotel_id", "fide_id", "slug", "key"],
-    `hotel-${index}`
-  );
-  const filter = readString(
-    row,
-    [
-      "region_name",
-      "region",
-      "area",
-      "neighborhood",
-      "location",
-      "price_tier",
-      "category",
-    ],
-    "Hotels"
-  );
-  const priceTier = readString(row, ["price_tier", "price", "budget"]);
-  const area = readString(row, [
-    "region_name",
-    "region",
-    "area",
-    "neighborhood",
-    "location",
-  ]);
-  const rating = readString(row, [
-    "internal_rating",
-    "public_rating",
-    "rating",
-    "stars",
-  ]);
-  const subtitle = [priceTier, area, rating && `${rating} rating`]
-    .filter(Boolean)
-    .join(" · ");
-  const description = readString(
-    row,
-    ["advisor_note", "description", "summary", "overview", "notes"],
-    "No description available yet."
-  );
-  const tags = readTags(row, [
-    "good_for",
-    "bad_for",
-    "tags",
-    "amenities",
-    "features",
-    "vibe",
-    "region_name",
-    "walkability",
-    "area",
-    "neighborhood",
-    "location",
-    "price_tier",
-  ]);
-
-  return {
-    id,
-    name,
-    filter,
-    subtitle: subtitle || "Hotel record",
-    description,
-    tags: tags.length > 0 ? tags : [filter],
-    raw: row,
-  };
-}
-
-function normalizeActivityRow(
-  row: Record<string, unknown>,
-  index: number
-): ContextItem {
-  const name = readString(row, ["activity", "name", "title"], `Activity ${index + 1}`);
-  const id = readString(row, ["activity_iri", "id", "key"], `activity-${index}`);
-  const region = readString(row, ["region_name", "region"], "Activities");
-  const duration = readString(row, ["duration"]);
-  const format = readString(row, ["format"]);
-  const tags = readTags(row, [
-    "good_for",
-    "bad_for",
-    "format",
-    "region_name",
-    "duration",
-  ]);
-
-  return {
-    id,
-    name,
-    filter: region,
-    subtitle: [duration, format, region].filter(Boolean).join(" · ") || "Activity record",
-    description: readString(row, ["advisor_note", "description"], "No description available yet."),
-    tags: tags.length > 0 ? tags : [region],
-    raw: row,
-  };
-}
-
-function normalizeDestinationRow(
-  row: Record<string, unknown>,
-  index: number
-): ContextItem {
-  const name = readString(row, ["place", "name", "title"], `Destination ${index + 1}`);
-  const id = readString(row, ["place_iri", "id", "key"], `destination-${index}`);
-
-  return {
-    id,
-    name,
-    filter: "Destinations",
-    subtitle: "Destination record",
-    description: readString(row, ["advisor_note", "description"], "No description available yet."),
-    tags: ["Destination"],
-    raw: row,
-  };
-}
-
-function normalizeTransportationRow(
-  row: Record<string, unknown>,
-  index: number
-): ContextItem {
-  const route = readString(row, ["route"], `Route ${index + 1}`);
-  const option = readString(row, ["option", "mode"]);
-  const id = readString(row, ["option_iri", "route_iri", "id", "key"], `transport-${index}`);
-  const from = readString(row, ["from_region_name", "from_region"]);
-  const to = readString(row, ["to_region_name", "to_region"]);
-  const duration = readString(row, ["duration"]);
-  const tags = readTags(row, [
-    "good_for",
-    "bad_for",
-    "option",
-    "mode",
-    "from_region_name",
-    "to_region_name",
-  ]);
-
-  return {
-    id,
-    name: option ? `${route}: ${option}` : route,
-    filter: from && to ? `${from} to ${to}` : "Transportation",
-    subtitle: [duration, from && to ? `${from} to ${to}` : ""]
-      .filter(Boolean)
-      .join(" · ") || "Transportation record",
-    description: readString(row, ["advisor_note", "description"], "No description available yet."),
-    tags: tags.length > 0 ? tags : ["Transportation"],
-    raw: row,
-  };
-}
-
-function normalizeContextRow(
-  category: ContextCategory,
-  row: Record<string, unknown>,
-  index: number
-): ContextItem {
-  if (category === "Hotels") {
-    return normalizeHotelRow(row, index);
-  }
-  if (category === "Activities") {
-    return normalizeActivityRow(row, index);
-  }
-  if (category === "Destinations") {
-    return normalizeDestinationRow(row, index);
-  }
-  return normalizeTransportationRow(row, index);
-}
+} as const satisfies Record<
+  ContextCategory,
+  { paramName: string; query: string }
+>;
 
 function PureArtifact({
   addToolApprovalResponse: _addToolApprovalResponse,
@@ -341,7 +110,6 @@ function PureArtifact({
   messages: _messages,
   setMessages,
   regenerate: _regenerate,
-  votes: _votes,
   isReadonly: _isReadonly,
   selectedVisibilityType: _selectedVisibilityType,
   selectedModelId: _selectedModelId,
@@ -358,7 +126,6 @@ function PureArtifact({
   setAttachments: Dispatch<SetStateAction<Attachment[]>>;
   messages: ChatMessage[];
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
-  votes: Vote[] | undefined;
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
   isReadonly: boolean;
@@ -368,15 +135,21 @@ function PureArtifact({
   setWorldModelVisible: Dispatch<SetStateAction<boolean>>;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
+  const {
+    category: contextCategory,
+    id: selectedContextItemId,
+    openContext,
+    openTravelContext,
+    clearContextItem,
+    clearContext,
+  } = useContextNav();
   const [activeTab, setActiveTab] = useState<"artifact" | "world-model">(
     artifact.isVisible ? "artifact" : "world-model"
   );
-  const [contextCategory, setContextCategory] = useState<string | null>(null);
   const [contextSearch, setContextSearch] = useState("");
   const [contextFilter, setContextFilter] = useState("All");
-  const [selectedContextItemId, setSelectedContextItemId] = useState<
-    string | null
-  >(null);
+  const [transportFrom, setTransportFrom] = useState("All");
+  const [transportTo, setTransportTo] = useState("All");
 
   const {
     data: documents,
@@ -479,7 +252,6 @@ function PureArtifact({
   const [document, setDocument] = useState<Document | null>(null);
   const [currentVersionIndex, setCurrentVersionIndex] = useState(-1);
 
-  const { state: sidebarState } = useSidebar();
   const artifactContentRef = useRef<HTMLDivElement>(null);
   const userScrolledArtifact = useRef(false);
   const [isContentDirty, setIsContentDirty] = useState(false);
@@ -669,7 +441,7 @@ function PureArtifact({
 
   const isPanelVisible = artifact.isVisible || isWorldModelVisible;
   const showArtifactTab = artifact.isVisible;
-  const showWorldModelTab = isWorldModelVisible;
+  const showWorldModelTab = isPanelVisible;
   const currentTab =
     activeTab === "artifact" && showArtifactTab ? "artifact" : "world-model";
 
@@ -707,6 +479,7 @@ function PureArtifact({
       return;
     }
 
+    clearContext();
     setWorldModelVisible(false);
     if (artifact.isVisible) {
       setActiveTab("artifact");
@@ -721,174 +494,41 @@ function PureArtifact({
         : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
     );
 
-  const contextCategories = [
-    "Hotels",
-    "Activities",
-    "Destinations",
-    "Transportation",
+  const contextCategories: Array<{
+    label: ContextCategory;
+    description: string;
+  }> = [
+    {
+      label: "Hotels",
+      description: "AU inventory stays with addresses and booking links.",
+    },
+    {
+      label: "Activities",
+      description: "Bookable tours and experiences with affiliate links.",
+    },
+    {
+      label: "Attractions",
+      description: "Top-10 things to do from Catalina destination guides.",
+    },
+    {
+      label: "Itineraries",
+      description: "Advisor trip templates with ordered stays.",
+    },
+    {
+      label: "Collections",
+      description: "Signature lodges, walks, wineries, golf, and Aboriginal experiences.",
+    },
+    {
+      label: "Destinations",
+      description: "AU & NZ places with stay nights, landscapes, and airports.",
+    },
+    {
+      label: "Transportation",
+      description: "Pick a from city, then a to city, to see routing legs.",
+    },
   ];
 
-  const placeholderContextItems: Record<string, ContextItem[]> = {
-    Hotels: [
-      {
-        id: "hotel-avalon-harbor",
-        name: "Avalon Harbor Inn",
-        filter: "Harbor",
-        subtitle: "$$$ · Harbor views · Walkable",
-        description:
-          "Placeholder hotel detail for a waterfront stay close to ferry arrivals, restaurants, and evening walks.",
-        tags: ["Harbor", "Couples", "Walkable"],
-      },
-      {
-        id: "hotel-courtyard",
-        name: "Catalina Courtyard Hotel",
-        filter: "Central",
-        subtitle: "$$ · Quiet courtyard · Family friendly",
-        description:
-          "Placeholder hotel detail for a central, practical stay with easy access to Avalon activities.",
-        tags: ["Central", "Families", "Quiet"],
-      },
-      {
-        id: "hotel-descanso",
-        name: "Descanso View Lodge",
-        filter: "Beach",
-        subtitle: "$$$ · Beach access · Scenic",
-        description:
-          "Placeholder hotel detail for travelers prioritizing beach time and slower mornings.",
-        tags: ["Beach", "Views", "Relaxed"],
-      },
-      {
-        id: "hotel-palms",
-        name: "Island Palms Suites",
-        filter: "Central",
-        subtitle: "$$ · Suite-style · Group friendly",
-        description:
-          "Placeholder hotel detail for groups who want more room and a simple home base.",
-        tags: ["Central", "Groups", "Suites"],
-      },
-    ],
-    Activities: [
-      {
-        id: "activity-glass-boat",
-        name: "Glass-bottom boat tour",
-        filter: "Water",
-        subtitle: "60 min · Easy · Family friendly",
-        description:
-          "Placeholder activity detail for seeing marine life without getting wet.",
-        tags: ["Water", "Families", "Easy"],
-      },
-      {
-        id: "activity-cabana",
-        name: "Descanso Beach cabana day",
-        filter: "Beach",
-        subtitle: "Half day · Relaxed · Premium",
-        description:
-          "Placeholder activity detail for a low-effort beach day with a reserved base.",
-        tags: ["Beach", "Relaxed", "Premium"],
-      },
-      {
-        id: "activity-hike",
-        name: "Garden to Sky hike",
-        filter: "Outdoors",
-        subtitle: "3 hr · Moderate · Scenic",
-        description:
-          "Placeholder activity detail for a more active route with island views.",
-        tags: ["Outdoors", "Scenic", "Moderate"],
-      },
-      {
-        id: "activity-food",
-        name: "Avalon food walk",
-        filter: "Food",
-        subtitle: "2 hr · Easy · Local flavor",
-        description:
-          "Placeholder activity detail for sampling Avalon restaurants and stories.",
-        tags: ["Food", "Easy", "Avalon"],
-      },
-    ],
-    Destinations: [
-      {
-        id: "destination-avalon",
-        name: "Avalon",
-        filter: "Town",
-        subtitle: "Main town · Dining · Hotels",
-        description:
-          "Placeholder destination detail for the island's primary visitor hub.",
-        tags: ["Town", "Dining", "Walkable"],
-      },
-      {
-        id: "destination-two-harbors",
-        name: "Two Harbors",
-        filter: "Remote",
-        subtitle: "Quieter side · Boating · Camping",
-        description:
-          "Placeholder destination detail for a more remote Catalina experience.",
-        tags: ["Remote", "Boating", "Outdoors"],
-      },
-      {
-        id: "destination-descanso",
-        name: "Descanso Beach",
-        filter: "Beach",
-        subtitle: "Beach club · Swimming · Cabanas",
-        description:
-          "Placeholder destination detail for lounging, swimming, and beach activities.",
-        tags: ["Beach", "Relaxed", "Popular"],
-      },
-      {
-        id: "destination-garden",
-        name: "Wrigley Memorial & Botanic Garden",
-        filter: "Nature",
-        subtitle: "Garden · Views · History",
-        description:
-          "Placeholder destination detail for native plants, architecture, and views.",
-        tags: ["Nature", "History", "Scenic"],
-      },
-    ],
-    Transportation: [
-      {
-        id: "transport-ferry",
-        name: "Catalina Express ferry",
-        filter: "Ferry",
-        subtitle: "Mainland route · Scheduled · Common",
-        description:
-          "Placeholder transportation detail for standard ferry arrivals and departures.",
-        tags: ["Ferry", "Scheduled", "Mainland"],
-      },
-      {
-        id: "transport-golf-cart",
-        name: "Avalon golf cart rental",
-        filter: "Local",
-        subtitle: "Local mobility · Scenic loop · Timed",
-        description:
-          "Placeholder transportation detail for exploring Avalon at a relaxed pace.",
-        tags: ["Local", "Avalon", "Scenic"],
-      },
-      {
-        id: "transport-shuttle",
-        name: "Two Harbors shuttle",
-        filter: "Shuttle",
-        subtitle: "Cross-island · Limited schedule",
-        description:
-          "Placeholder transportation detail for reaching the quieter side of the island.",
-        tags: ["Shuttle", "Two Harbors", "Planning"],
-      },
-      {
-        id: "transport-private",
-        name: "Private boat transfer",
-        filter: "Private",
-        subtitle: "Flexible · Premium · Weather dependent",
-        description:
-          "Placeholder transportation detail for customized arrivals or special trips.",
-        tags: ["Private", "Premium", "Flexible"],
-      },
-    ],
-  };
-
-  const contextItems =
-    activeContextCategory
-      ? realContextItems
-      : contextCategory
-        ? placeholderContextItems[contextCategory]
-        : [];
+  const contextItems = activeContextCategory ? realContextItems : [];
   const isContextLoading = Boolean(activeContextCategory && isContextQueryLoading);
   const contextError = activeContextCategory && contextQueryError
     ? contextQueryError instanceof Error
@@ -898,9 +538,37 @@ function PureArtifact({
   const contextEmptyMessage =
     activeContextCategory
       ? `No ${activeContextCategory.toLowerCase()} records match that search.`
-      : "No placeholder records match that search.";
-  const selectedContextItem =
-    contextItems.find((item) => item.id === selectedContextItemId) ?? null;
+      : "No world model records match that search.";
+  const selectedContextItem = (() => {
+    if (!selectedContextItemId || !activeContextCategory) {
+      return null;
+    }
+
+    const fromList = contextItems.find(
+      (item) => item.id === selectedContextItemId
+    );
+    if (fromList) {
+      return fromList;
+    }
+
+    if (contextDetailRows[0]) {
+      return normalizeContextRow(
+        activeContextCategory,
+        contextDetailRows[0],
+        0
+      );
+    }
+
+    return {
+      id: selectedContextItemId,
+      name: "Loading…",
+      filter: "",
+      subtitle: activeContextCategory,
+      description: "",
+      tags: [],
+      raw: undefined,
+    } satisfies ContextItem;
+  })();
   const selectedDetailRow =
     activeContextCategory
       ? (contextDetailRows[0] ?? selectedContextItem?.raw ?? null)
@@ -910,25 +578,269 @@ function PureArtifact({
       ? `Could not load the ${activeContextCategory.toLowerCase()} detail record.`
       : null;
   const selectedDetailFields = selectedDetailRow
-    ? [
-        ["Region", readString(selectedDetailRow, ["region_name", "region"])],
-        ["Route", readString(selectedDetailRow, ["route"])],
-        ["From", readString(selectedDetailRow, ["from_region_name", "from_region"])],
-        ["To", readString(selectedDetailRow, ["to_region_name", "to_region"])],
-        ["Duration", readString(selectedDetailRow, ["duration"])],
-        ["Format", readString(selectedDetailRow, ["format"])],
+    ? (
         [
-          "Internal rating",
-          readString(selectedDetailRow, ["internal_rating"]),
-        ],
-        ["Public rating", readString(selectedDetailRow, ["public_rating"])],
-        ["Walkability", readString(selectedDetailRow, ["walkability"])],
-        ["Times sent", readString(selectedDetailRow, ["times_sent"])],
-        ["Room tip", readString(selectedDetailRow, ["room_tip"])],
-        ["Booking tip", readString(selectedDetailRow, ["booking_tip"])],
-        ["Caution", readString(selectedDetailRow, ["caution_note"])],
-      ].filter(([, value]) => value)
+          {
+            label: "Region",
+            value: readString(selectedDetailRow, ["region_name", "region"]),
+            openId: readPlaceOpenId(selectedDetailRow, "region"),
+            openKind: "destination" as const,
+          },
+          {
+            label: "From",
+            value: readString(selectedDetailRow, ["from_region_name", "from_region"]),
+            openId: readPlaceOpenId(selectedDetailRow, "from"),
+            openKind: "destination" as const,
+          },
+          {
+            label: "To",
+            value: readString(selectedDetailRow, ["to_region_name", "to_region"]),
+            openId: readPlaceOpenId(selectedDetailRow, "to"),
+            openKind: "destination" as const,
+          },
+          { label: "Route", value: readString(selectedDetailRow, ["route"]) },
+          { label: "Mode", value: readString(selectedDetailRow, ["mode"]) },
+          {
+            label: "Duration (hours)",
+            value:
+              readString(selectedDetailRow, ["mode", "distance_km"])
+                ? readString(selectedDetailRow, ["duration"])
+                : "",
+          },
+          {
+            label: "Distance (km)",
+            value: readString(selectedDetailRow, ["distance_km"]),
+          },
+          { label: "Format", value: readString(selectedDetailRow, ["format"]) },
+          {
+            label: "Guide rank",
+            value: readString(selectedDetailRow, ["guide_rank", "position"]),
+          },
+          {
+            label: "Source guide",
+            value: readString(selectedDetailRow, ["source_guide"]),
+          },
+          {
+            label: "Duration",
+            value: readString(selectedDetailRow, ["mode", "distance_km"])
+              ? ""
+              : readString(selectedDetailRow, ["duration"]),
+          },
+          {
+            label: "Best for",
+            value: readString(selectedDetailRow, ["best_for"]),
+          },
+          {
+            label: "When to go",
+            value: readString(selectedDetailRow, ["when_to_go"]),
+          },
+          {
+            label: "Recommended nights",
+            value: readString(selectedDetailRow, ["stay_recommended_nights"]),
+          },
+          {
+            label: "Stay range",
+            value: (() => {
+              const min = readString(selectedDetailRow, ["stay_min_nights"]);
+              const max = readString(selectedDetailRow, ["stay_max_nights"]);
+              if (min && max) {
+                return `${min}–${max} nights`;
+              }
+              return min || max;
+            })(),
+          },
+          {
+            label: "Priority",
+            value: readString(selectedDetailRow, ["city_priority"]),
+          },
+          {
+            label: "Landscapes",
+            value: readString(selectedDetailRow, ["landscapes"]),
+          },
+          {
+            label: "IATA",
+            value: readString(selectedDetailRow, ["iata_code"]),
+          },
+          {
+            label: "Address",
+            value: readString(selectedDetailRow, ["address"]),
+          },
+          {
+            label: "Telephone",
+            value: readString(selectedDetailRow, ["telephone"]),
+          },
+          {
+            label: "Affiliate links",
+            value: readString(selectedDetailRow, ["affiliate_links"]),
+            isLinkList: true,
+          },
+          { label: "Price tier", value: readString(selectedDetailRow, ["price_tier", "price"]) },
+          { label: "Internal rating", value: readString(selectedDetailRow, ["internal_rating"]) },
+          { label: "Public rating", value: readString(selectedDetailRow, ["public_rating"]) },
+          { label: "Walkability", value: readString(selectedDetailRow, ["walkability"]) },
+          { label: "Times sent", value: readString(selectedDetailRow, ["times_sent"]) },
+          { label: "Room tip", value: readString(selectedDetailRow, ["room_tip"]) },
+          { label: "Booking tip", value: readString(selectedDetailRow, ["booking_tip"]) },
+          { label: "Caution", value: readString(selectedDetailRow, ["caution_note"]) },
+        ] as Array<{
+          label: string;
+          value: string;
+          openId?: string;
+          openKind?: "hotel" | "activity" | "attraction" | "itinerary" | "collection" | "destination" | "transportation";
+          isLinkList?: boolean;
+        }>
+      ).filter((field) => field.value)
     : [];
+  const selectedItineraryDays = (() => {
+    if (!selectedDetailRow || activeContextCategory !== "Itineraries") {
+      return [] as Array<{
+        day: number;
+        title: string;
+        summary: string;
+        stopPosition: number;
+        visitNames: string[];
+        visitIris: string[];
+        highlightNames: string[];
+        highlightIris: string[];
+      }>;
+    }
+    const value = selectedDetailRow.days_json;
+    let parsed: unknown = value;
+    if (typeof value === "string" && value.trim()) {
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return [];
+      }
+    }
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const row = entry as Record<string, unknown>;
+        const visitNames = String(row.visit_names ?? "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const visitIris = String(row.visit_iris ?? "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const highlightNames = String(row.highlight_names ?? "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const highlightIris = String(row.highlight_iris ?? "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        return {
+          day: Number(row.day) || 0,
+          title: String(row.title ?? ""),
+          summary: String(row.summary ?? ""),
+          stopPosition: Number(row.stop_position) || 0,
+          visitNames,
+          visitIris,
+          highlightNames,
+          highlightIris,
+        };
+      })
+      .filter(
+        (
+          day
+        ): day is {
+          day: number;
+          title: string;
+          summary: string;
+          stopPosition: number;
+          visitNames: string[];
+          visitIris: string[];
+          highlightNames: string[];
+          highlightIris: string[];
+        } => Boolean(day && day.day)
+      );
+  })();
+  const selectedItineraryStops = (() => {
+    if (!selectedDetailRow || activeContextCategory !== "Itineraries") {
+      return [] as Array<{
+        position: number;
+        name: string;
+        nights: string;
+        placeIri: string;
+      }>;
+    }
+    const names = readString(selectedDetailRow, ["stop_place_names"])
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const iris = readString(selectedDetailRow, ["stop_place_iris"])
+      .split("|")
+      .map((part) => part.trim());
+    const nights = readString(selectedDetailRow, ["stop_nights"])
+      .split("|")
+      .map((part) => part.trim());
+    return names.map((name, index) => ({
+      position: index + 1,
+      name,
+      nights: nights[index] || "",
+      placeIri: iris[index] || "",
+    }));
+  })();
+  const selectedCollectionMembers = (() => {
+    if (!selectedDetailRow || activeContextCategory !== "Collections") {
+      return [] as Array<{
+        name: string;
+        placeIri: string;
+        placeName: string;
+      }>;
+    }
+    const names = readString(selectedDetailRow, ["member_names"])
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const placeIris = readString(selectedDetailRow, ["member_place_iris"])
+      .split("|")
+      .map((part) => part.trim());
+    const placeNames = readString(selectedDetailRow, ["member_place_names"])
+      .split("|")
+      .map((part) => part.trim());
+    return names.map((name, index) => ({
+      name,
+      placeIri: placeIris[index] || "",
+      placeName: placeNames[index] || "",
+    }));
+  })();
+  const selectedAdvisorLinks = (() => {
+    if (!selectedDetailRow || activeContextCategory !== "Destinations") {
+      return [] as Array<{ label: string; url: string }>;
+    }
+    const labels = readString(selectedDetailRow, ["advisor_link_labels"])
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const urls = readString(selectedDetailRow, ["advisor_link_urls"])
+      .split("|")
+      .map((part) => part.trim());
+    if (labels.length > 0) {
+      return labels.map((label, index) => ({
+        label,
+        url: urls[index] || "",
+      }));
+    }
+    return readString(selectedDetailRow, ["advisor_links"])
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [label, url] = part.split("::").map((piece) => piece.trim());
+        return { label: label || part, url: url || "" };
+      })
+      .filter((link) => Boolean(link.url));
+  })();
   const selectedReviews = selectedDetailRow
     ? readString(selectedDetailRow, ["guest_reviews"])
         .split("\n")
@@ -937,16 +849,72 @@ function PureArtifact({
     : [];
   const contextFilters = [
     "All",
-    ...Array.from(new Set(contextItems.map((item) => item.filter))),
+    ...Array.from(new Set(contextItems.map((item) => item.filter))).filter(
+      Boolean
+    ),
   ];
+  const transportFromOptions =
+    contextCategory === "Transportation"
+      ? Array.from(
+          new Set(
+            contextItems
+              .map((item) =>
+                readString(item.raw ?? {}, ["from_region_name", "from_region"])
+              )
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b))
+      : [];
+  const transportToOptions =
+    contextCategory === "Transportation"
+      ? Array.from(
+          new Set(
+            contextItems
+              .filter((item) => {
+                if (transportFrom === "All") {
+                  return true;
+                }
+                return (
+                  readString(item.raw ?? {}, [
+                    "from_region_name",
+                    "from_region",
+                  ]) === transportFrom
+                );
+              })
+              .map((item) =>
+                readString(item.raw ?? {}, ["to_region_name", "to_region"])
+              )
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b))
+      : [];
   const visibleContextItems = contextCategory
-    ? contextItems.filter(
-        (item) =>
-          (contextFilter === "All" || item.filter === contextFilter) &&
-          `${item.name} ${item.subtitle} ${item.tags.join(" ")}`
-            .toLowerCase()
-            .includes(contextSearch.trim().toLowerCase())
-      )
+    ? contextItems.filter((item) => {
+        const matchesSearch = `${item.name} ${item.subtitle} ${item.tags.join(" ")}`
+          .toLowerCase()
+          .includes(contextSearch.trim().toLowerCase());
+        if (!matchesSearch) {
+          return false;
+        }
+        if (contextCategory === "Transportation") {
+          const from = readString(item.raw ?? {}, [
+            "from_region_name",
+            "from_region",
+          ]);
+          const to = readString(item.raw ?? {}, [
+            "to_region_name",
+            "to_region",
+          ]);
+          if (transportFrom !== "All" && from !== transportFrom) {
+            return false;
+          }
+          if (transportTo !== "All" && to !== transportTo) {
+            return false;
+          }
+          return true;
+        }
+        return contextFilter === "All" || item.filter === contextFilter;
+      })
     : [];
 
   const worldModelPanel = (
@@ -960,9 +928,9 @@ function PureArtifact({
                   className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   onClick={() => {
                     if (selectedContextItem) {
-                      setSelectedContextItemId(null);
+                      clearContextItem();
                     } else {
-                      setContextCategory(null);
+                      clearContext();
                       setContextSearch("");
                       setContextFilter("All");
                     }
@@ -978,9 +946,7 @@ function PureArtifact({
                   <div className="text-xs text-muted-foreground">
                     {selectedContextItem
                       ? contextCategory
-                      : activeContextCategory
-                        ? "World model records"
-                        : "Placeholder context records"}
+                      : "Live Catalina Quest inventory"}
                   </div>
                 </div>
               </div>
@@ -1028,17 +994,255 @@ function PureArtifact({
                   </div>
                   {selectedDetailFields.length > 0 ? (
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {selectedDetailFields.map(([label, value]) => (
+                      {selectedDetailFields.map((field) => (
                         <div
-                          className="rounded-lg border border-border/60 bg-card/40 p-3"
-                          key={label}
+                          className={cn(
+                            "rounded-lg border border-border/60 bg-card/40 p-3",
+                            field.isLinkList && "sm:col-span-2"
+                          )}
+                          key={field.label}
                         >
                           <div className="text-[11px] font-medium uppercase text-muted-foreground">
-                            {label}
+                            {field.label}
                           </div>
-                          <div className="mt-1 text-sm leading-5">{value}</div>
+                          {field.openId && field.openKind ? (
+                            <button
+                              className="mt-1 inline-flex max-w-full items-center gap-1 text-left text-sm leading-5 text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+                              onClick={() =>
+                                openTravelContext(field.openKind!, field.openId!)
+                              }
+                              type="button"
+                            >
+                              <span className="truncate">{field.value}</span>
+                              <ArrowLeftIcon className="size-3.5 shrink-0 rotate-180" />
+                            </button>
+                          ) : field.isLinkList ? (
+                            <div className="mt-1 flex flex-col gap-1.5">
+                              {field.value
+                                .split(/[|,]/)
+                                .map((link) => link.trim())
+                                .filter((link) => /^https?:\/\//i.test(link))
+                                .map((link) => (
+                                  <a
+                                    className="truncate text-sm leading-5 text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+                                    href={link}
+                                    key={link}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                  >
+                                    {link}
+                                  </a>
+                                ))}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-sm leading-5">
+                              {field.value}
+                            </div>
+                          )}
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+                  {selectedItineraryStops.length > 0 ? (
+                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+                      <div className="text-[11px] font-medium uppercase text-muted-foreground">
+                        Stops
+                      </div>
+                      <div className="mt-3 flex flex-col gap-3">
+                        {selectedItineraryStops.map((stop) => {
+                          const stopDays = selectedItineraryDays.filter(
+                            (day) => day.stopPosition === stop.position
+                          );
+                          return (
+                            <div
+                              className="rounded-md border border-border/50 bg-background/40 px-3 py-2.5"
+                              key={`${stop.position}-${stop.placeIri || stop.name}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                    Stop {stop.position}
+                                    {stop.nights
+                                      ? ` · ${stop.nights} night${stop.nights === "1" ? "" : "s"}`
+                                      : ""}
+                                  </div>
+                                  {stop.placeIri ? (
+                                    <button
+                                      className="mt-0.5 inline-flex max-w-full items-center gap-1 text-left text-sm font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+                                      onClick={() =>
+                                        openTravelContext(
+                                          "destination",
+                                          stop.placeIri
+                                        )
+                                      }
+                                      type="button"
+                                    >
+                                      <span className="truncate">{stop.name}</span>
+                                      <ArrowLeftIcon className="size-3.5 shrink-0 rotate-180" />
+                                    </button>
+                                  ) : (
+                                    <div className="mt-0.5 text-sm font-medium">
+                                      {stop.name}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {stopDays.length > 0 ? (
+                                <div className="mt-2.5 flex flex-col gap-2 border-border/40 border-t pt-2.5">
+                                  {stopDays.map((day) => (
+                                    <div
+                                      className="min-w-0"
+                                      key={`${stop.position}-day-${day.day}`}
+                                    >
+                                      <div className="text-sm font-medium">
+                                        Day {day.day}
+                                        {day.title ? ` — ${day.title}` : ""}
+                                      </div>
+                                      {day.summary ? (
+                                        <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                                          {day.summary}
+                                        </p>
+                                      ) : null}
+                                      {(day.visitNames.length > 0 ||
+                                        day.highlightNames.length > 0) ? (
+                                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                          {day.visitNames.map((visitName, index) => {
+                                            const visitIri =
+                                              day.visitIris[index] || "";
+                                            if (visitIri) {
+                                              return (
+                                                <button
+                                                  className="rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 text-xs font-medium text-sky-700 transition-colors hover:bg-muted/50 dark:text-sky-400"
+                                                  key={`${day.day}-v-${visitIri}`}
+                                                  onClick={() =>
+                                                    openTravelContext(
+                                                      "destination",
+                                                      visitIri
+                                                    )
+                                                  }
+                                                  type="button"
+                                                >
+                                                  {visitName}
+                                                </button>
+                                              );
+                                            }
+                                            return (
+                                              <span
+                                                className="rounded-md border border-border/50 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground"
+                                                key={`${day.day}-v-${visitName}`}
+                                              >
+                                                {visitName}
+                                              </span>
+                                            );
+                                          })}
+                                          {day.highlightNames.map(
+                                            (highlightName, index) => {
+                                              const highlightIri =
+                                                day.highlightIris[index] || "";
+                                              const kind = highlightIri.includes(
+                                                "#activity="
+                                              )
+                                                ? "activity"
+                                                : "attraction";
+                                              if (highlightIri) {
+                                                return (
+                                                  <button
+                                                    className="rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 text-xs font-medium text-sky-700 transition-colors hover:bg-muted/50 dark:text-sky-400"
+                                                    key={`${day.day}-h-${highlightIri}`}
+                                                    onClick={() =>
+                                                      openTravelContext(
+                                                        kind,
+                                                        highlightIri
+                                                      )
+                                                    }
+                                                    type="button"
+                                                  >
+                                                    {highlightName}
+                                                  </button>
+                                                );
+                                              }
+                                              return (
+                                                <span
+                                                  className="rounded-md border border-border/50 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground"
+                                                  key={`${day.day}-h-${highlightName}`}
+                                                >
+                                                  {highlightName}
+                                                </span>
+                                              );
+                                            }
+                                          )}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  {selectedCollectionMembers.length > 0 ? (
+                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+                      <div className="text-[11px] font-medium uppercase text-muted-foreground">
+                        Members
+                      </div>
+                      <div className="mt-3 flex flex-col gap-2">
+                        {selectedCollectionMembers.map((member) => (
+                          <div
+                            className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2"
+                            key={member.name}
+                          >
+                            <div className="min-w-0">
+                              {member.placeIri ? (
+                                <button
+                                  className="inline-flex max-w-full items-center gap-1 text-left text-sm font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+                                  onClick={() =>
+                                    openTravelContext(
+                                      "destination",
+                                      member.placeIri
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  <span className="truncate">{member.name}</span>
+                                  <ArrowLeftIcon className="size-3.5 shrink-0 rotate-180" />
+                                </button>
+                              ) : (
+                                <div className="text-sm font-medium">
+                                  {member.name}
+                                </div>
+                              )}
+                              {member.placeName ? (
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {member.placeName}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {selectedAdvisorLinks.length > 0 ? (
+                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+                      <div className="text-[11px] font-medium uppercase text-muted-foreground">
+                        Advisor links
+                      </div>
+                      <div className="mt-3 flex flex-col gap-2">
+                        {selectedAdvisorLinks.map((link) => (
+                          <a
+                            className="truncate text-sm font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+                            href={link.url}
+                            key={`${link.label}-${link.url}`}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {link.label}
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   {selectedReviews.length > 0 ? (
@@ -1062,30 +1266,78 @@ function PureArtifact({
                   <input
                     className="h-10 rounded-lg border border-input bg-muted/30 px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/20 focus:bg-muted"
                     onChange={(event) => setContextSearch(event.target.value)}
-                    placeholder={`Search ${contextCategory.toLowerCase()}...`}
+                    placeholder={
+                      contextCategory === "Transportation"
+                        ? "Search routes..."
+                        : `Search ${contextCategory.toLowerCase()}...`
+                    }
                     value={contextSearch}
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {contextFilters.map((filter) => (
-                      <button
-                        className={cn(
-                          "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                          contextFilter === filter
-                            ? "border-foreground/20 bg-foreground text-background"
-                            : "border-border/60 bg-card/40 text-muted-foreground hover:bg-card hover:text-foreground"
-                        )}
-                        key={filter}
-                        onClick={() => setContextFilter(filter)}
-                        type="button"
-                      >
-                        {filter}
-                      </button>
-                    ))}
-                  </div>
+                  {contextCategory === "Transportation" ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-medium uppercase text-muted-foreground">
+                          From
+                        </span>
+                        <select
+                          className="h-10 rounded-lg border border-input bg-muted/30 px-3 text-sm outline-none transition-colors focus:border-foreground/20 focus:bg-muted"
+                          onChange={(event) => {
+                            setTransportFrom(event.target.value);
+                            setTransportTo("All");
+                          }}
+                          value={transportFrom}
+                        >
+                          <option value="All">All origins</option>
+                          {transportFromOptions.map((place) => (
+                            <option key={place} value={place}>
+                              {place}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-medium uppercase text-muted-foreground">
+                          To
+                        </span>
+                        <select
+                          className="h-10 rounded-lg border border-input bg-muted/30 px-3 text-sm outline-none transition-colors focus:border-foreground/20 focus:bg-muted"
+                          onChange={(event) =>
+                            setTransportTo(event.target.value)
+                          }
+                          value={transportTo}
+                        >
+                          <option value="All">All destinations</option>
+                          {transportToOptions.map((place) => (
+                            <option key={place} value={place}>
+                              {place}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {contextFilters.map((filter) => (
+                        <button
+                          className={cn(
+                            "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                            contextFilter === filter
+                              ? "border-foreground/20 bg-foreground text-background"
+                              : "border-border/60 bg-card/40 text-muted-foreground hover:bg-card hover:text-foreground"
+                          )}
+                          key={filter}
+                          onClick={() => setContextFilter(filter)}
+                          type="button"
+                        >
+                          {filter}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-col gap-2">
                     {isContextLoading ? (
                       <div className="rounded-lg border border-border/60 bg-card/40 p-4 text-sm text-muted-foreground">
-                        Loading hotels...
+                        Loading {contextCategory.toLowerCase()}...
                       </div>
                     ) : null}
                     {!isContextLoading &&
@@ -1093,7 +1345,11 @@ function PureArtifact({
                         <button
                           className="rounded-lg border border-border/60 bg-card/40 p-4 text-left transition-colors hover:border-border hover:bg-card"
                           key={item.id}
-                          onClick={() => setSelectedContextItemId(item.id)}
+                          onClick={() => {
+                            if (contextCategory) {
+                              openContext(contextCategory as ContextCategory, item.id);
+                            }
+                          }}
                           type="button"
                         >
                           <div className="text-sm font-medium">
@@ -1116,7 +1372,9 @@ function PureArtifact({
                       ))}
                     {!isContextLoading && visibleContextItems.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-border/70 p-4 text-sm text-muted-foreground">
-                        {contextEmptyMessage}
+                        {contextCategory === "Transportation"
+                          ? "No routes match that from/to selection."
+                          : contextEmptyMessage}
                       </div>
                     ) : null}
                   </div>
@@ -1124,28 +1382,31 @@ function PureArtifact({
               )}
             </>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {contextCategories.map((label) => (
-                <button
-                  className="group flex min-h-28 flex-col justify-between rounded-lg border border-border/60 bg-card/40 p-4 text-left transition-colors hover:border-border hover:bg-card"
-                  key={label}
-                  onClick={() => {
-                    setContextCategory(label);
-                    setContextFilter("All");
-                    setContextSearch("");
-                    setSelectedContextItemId(null);
-                  }}
-                  type="button"
-                >
-                  <div>
-                    <div className="text-sm font-medium">{label}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Browse {label.toLowerCase()} records from the world
-                      model.
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {contextCategories.map(({ label, description }) => (
+                  <button
+                    className="group flex min-h-28 flex-col justify-between rounded-lg border border-border/60 bg-card/40 p-4 text-left transition-colors hover:border-border hover:bg-card"
+                    key={label}
+                    onClick={() => {
+                      openContext(label);
+                      setContextFilter("All");
+                      setContextSearch("");
+                      setTransportFrom("All");
+                      setTransportTo("All");
+                    }}
+                    type="button"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{label}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {description}
+                      </div>
                     </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
+              <ContextDataUpload />
             </div>
           )}
         </div>
@@ -1155,43 +1416,42 @@ function PureArtifact({
 
   const artifactPanel = (
     <>
-      {sidebarState !== "collapsed" && (
-        <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between border-b border-border/50 px-4">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col gap-0.5">
-              <div className="text-sm font-semibold leading-tight tracking-tight">
-                {artifact.title}
-              </div>
-              <div className="flex items-center gap-2">
-                {isContentDirty ? (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <div className="size-1.5 animate-pulse rounded-full bg-amber-500" />
-                    Saving...
+      <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="truncate text-sm font-semibold leading-tight tracking-tight">
+              {artifact.title}
+            </div>
+            <div className="flex items-center gap-2">
+              {isContentDirty ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+                  Saving...
+                </div>
+              ) : document ? (
+                <div className="text-xs text-muted-foreground">
+                  {`Updated ${formatDistance(new Date(document.createdAt), new Date(), { addSuffix: true })}`}
+                </div>
+              ) : artifact.status === "streaming" ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="animate-spin">
+                    <LoaderIcon size={12} />
                   </div>
-                ) : document ? (
-                  <div className="text-xs text-muted-foreground">
-                    {`Updated ${formatDistance(new Date(document.createdAt), new Date(), { addSuffix: true })}`}
-                  </div>
-                ) : artifact.status === "streaming" ? (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <div className="animate-spin">
-                      <LoaderIcon size={12} />
-                    </div>
-                    Generating...
-                  </div>
-                ) : (
-                  <div className="h-3 w-24 animate-pulse rounded bg-muted-foreground/10" />
-                )}
-                {documents && documents.length > 1 && (
-                  <div className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
-                    v{currentVersionIndex + 1}/{documents.length}
-                  </div>
-                )}
-              </div>
+                  Generating...
+                </div>
+              ) : (
+                <div className="h-3 w-24 animate-pulse rounded bg-muted-foreground/10" />
+              )}
+              {documents && documents.length > 1 && (
+                <div className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+                  v{currentVersionIndex + 1}/{documents.length}
+                </div>
+              )}
             </div>
           </div>
         </div>
-      )}
+        <ArtifactCloseButton />
+      </div>
       <div
         className="relative flex-1 overflow-y-auto bg-background"
         data-slot="artifact-content"
@@ -1286,7 +1546,10 @@ function PureArtifact({
           {showWorldModelTab ? (
             <button
               className={tabButtonClass("world-model")}
-              onClick={() => setActiveTab("world-model")}
+              onClick={() => {
+                setWorldModelVisible(true);
+                setActiveTab("world-model");
+              }}
               type="button"
             >
               <DatabaseIcon className="size-3.5" />
@@ -1295,6 +1558,9 @@ function PureArtifact({
           ) : null}
         </div>
         <button
+          aria-label={
+            currentTab === "artifact" ? "Close document" : "Close context"
+          }
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={closeCurrentTab}
           type="button"
@@ -1347,9 +1613,6 @@ function PureArtifact({
 
 export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
   if (prevProps.status !== nextProps.status) {
-    return false;
-  }
-  if (!equal(prevProps.votes, nextProps.votes)) {
     return false;
   }
   if (prevProps.input !== nextProps.input) {

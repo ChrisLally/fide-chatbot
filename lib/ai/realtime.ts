@@ -2,10 +2,31 @@ import { tool } from "ai";
 import { z } from "zod";
 import { regularPrompt, worldModelPrompt } from "./prompts";
 
-export const XAI_VOICE_MODEL =
-  process.env.NEXT_PUBLIC_XAI_VOICE_MODEL ??
-  process.env.XAI_VOICE_MODEL ??
-  "grok-voice-latest";
+export type VoiceProvider = "xai" | "google";
+
+export const VOICE_MODELS: Record<
+  VoiceProvider,
+  { id: string; name: string; providerName: string }
+> = {
+  xai: {
+    id:
+      process.env.NEXT_PUBLIC_XAI_VOICE_MODEL ??
+      process.env.XAI_VOICE_MODEL ??
+      "grok-voice-latest",
+    name: "Grok Voice",
+    providerName: "xAI",
+  },
+  google: {
+    id:
+      process.env.NEXT_PUBLIC_GOOGLE_VOICE_MODEL ??
+      process.env.GOOGLE_VOICE_MODEL ??
+      "gemini-2.0-flash-exp",
+    name: "Gemini Live",
+    providerName: "Google Vertex / Gemini",
+  },
+};
+
+export const XAI_VOICE_MODEL = VOICE_MODELS.xai.id;
 
 export const realtimeTools = {
   getWeather: tool({

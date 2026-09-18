@@ -10,6 +10,20 @@ const contextQueries = {
     process.env.FIDE_CONTEXT_QUERY_ACTIVITIES ?? "inventory/activities-all",
   activityDetail:
     process.env.FIDE_CONTEXT_QUERY_ACTIVITY_DETAIL ?? "inventory/activity",
+  attractions:
+    process.env.FIDE_CONTEXT_QUERY_ATTRACTIONS ?? "inventory/attractions-all",
+  attractionDetail:
+    process.env.FIDE_CONTEXT_QUERY_ATTRACTION_DETAIL ?? "inventory/attraction",
+  itineraries:
+    process.env.FIDE_CONTEXT_QUERY_ITINERARIES ?? "inventory/itineraries-all",
+  collections:
+    process.env.FIDE_CONTEXT_QUERY_COLLECTIONS ?? "inventory/collections-all",
+  collectionDetail:
+    process.env.FIDE_CONTEXT_QUERY_COLLECTION_DETAIL ?? "inventory/collection",
+  sameAsLinks:
+    process.env.FIDE_CONTEXT_QUERY_SAME_AS ?? "inventory/same-as-links",
+  itineraryDetail:
+    process.env.FIDE_CONTEXT_QUERY_ITINERARY_DETAIL ?? "inventory/itinerary",
   destinations:
     process.env.FIDE_CONTEXT_QUERY_DESTINATIONS ?? "inventory/places",
   destinationDetail:

@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { guestRegex, isDevelopmentEnvironment } from "./lib/constants";
+import {
+  appBasePath,
+  guestRegex,
+  isDevelopmentEnvironment,
+} from "./lib/constants";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -13,17 +17,26 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // assetPrefix (/demo-assets) is outside basePath; never force guest auth on it.
+  // Also: `/demo-assets`.startsWith(`/demo`) is true — must not strip as basePath.
+  if (pathname.startsWith("/demo-assets")) {
+    return NextResponse.next();
+  }
+
   const token = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET,
     secureCookie: !isDevelopmentEnvironment,
   });
 
-  const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-  const normalizedPathname =
-    base && pathname.startsWith(base)
-      ? pathname.slice(base.length) || "/"
-      : pathname;
+  const base = appBasePath;
+  // Require a path boundary so `/demo-assets/...` is not treated as `/demo` + `-assets/...`.
+  const underBase =
+    Boolean(base) && (pathname === base || pathname.startsWith(`${base}/`));
+  const normalizedPathname = underBase
+    ? pathname.slice(base.length) || "/"
+    : pathname;
+
   const isApiRoute = normalizedPathname.startsWith("/api");
   const isAuthPage = ["/login", "/register"].includes(normalizedPathname);
 
@@ -61,6 +74,6 @@ export const config = {
     "/login",
     "/register",
 
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|images/).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|images/|demo-assets/).*)",
   ],
 };

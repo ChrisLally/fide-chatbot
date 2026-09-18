@@ -3,9 +3,18 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import fs from "node:fs";
+
 // Standalone app nested under fide-internal: own lockfile + node_modules.
 // Pin Turbopack/tracing here so Next does not walk up to the parent turborepo.
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
+
+if (!process.env.IS_DEMO && fs.existsSync(path.join(appRoot, ".env"))) {
+  const envContent = fs.readFileSync(path.join(appRoot, ".env"), "utf8");
+  if (/^IS_DEMO=1/m.test(envContent)) {
+    process.env.IS_DEMO = "1";
+  }
+}
 
 const basePath = process.env.IS_DEMO === "1" ? "/demo" : "";
 

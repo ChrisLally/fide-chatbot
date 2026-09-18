@@ -1,5 +1,6 @@
 node_modules
 .pglite*
+data-inbox/
 .pnp
 .pnp.js
 coverage
@@ -26,3 +27,9 @@ yarn-error.log*
 /playwright/*
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# IDE & Editor
+.vscode/
+.idea/
+.cursor/
+

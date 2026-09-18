@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { signIn } from "@/app/(auth)/auth";
-import { isDevelopmentEnvironment } from "@/lib/constants";
+import { appBasePath, isDevelopmentEnvironment } from "@/lib/constants";
 import { getUserById } from "@/lib/db/queries";
 
 export async function GET(request: Request) {
@@ -11,6 +11,14 @@ export async function GET(request: Request) {
     rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
       ? rawRedirect
       : "/";
+
+  // Auth.js redirectTo is host-absolute. Under demo basePath (/demo),
+  // "/" would escape to the site root (workspace gateway) — prefix it.
+  const base = appBasePath;
+  const redirectTo =
+    base && !redirectUrl.startsWith(base)
+      ? `${base}${redirectUrl === "/" ? "/" : redirectUrl}`
+      : redirectUrl;
 
   const token = await getToken({
     req: request,
@@ -23,10 +31,9 @@ export async function GET(request: Request) {
   if (token?.id) {
     const existing = await getUserById(String(token.id));
     if (existing) {
-      const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
       return NextResponse.redirect(new URL(`${base}/`, request.url));
     }
   }
 
-  return signIn("guest", { redirect: true, redirectTo: redirectUrl });
+  return signIn("guest", { redirect: true, redirectTo });
 }

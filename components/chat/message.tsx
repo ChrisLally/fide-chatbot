@@ -2,7 +2,6 @@
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { DynamicToolUIPart } from "ai";
 import { isToolUIPart } from "ai";
-import type { Vote } from "@/lib/db/schema";
 import type { ChatMessage } from "@/lib/types";
 import { cn, sanitizeText } from "@/lib/utils";
 import { MessageContent, MessageResponse } from "../ai-elements/message";
@@ -21,7 +20,48 @@ import { SparklesIcon } from "./icons";
 import { MessageActions } from "./message-actions";
 import { MessageReasoning } from "./message-reasoning";
 import { PreviewAttachment } from "./preview-attachment";
+import { RunViewCard, rowsFromRunViewOutput } from "./travel-cards/run-view-card";
 import { Weather } from "./weather";
+import { isDetailView } from "@/lib/fide/view-query-map";
+
+const inventoryViewKeys = new Set([
+  "inventory/hotels-all",
+  "inventory/hotel",
+  "inventory/activities-all",
+  "inventory/activity",
+  "inventory/places",
+  "inventory/place",
+  "inventory/transport-all",
+  "inventory/transport-option",
+]);
+
+function shouldRenderTravelCard(
+  toolName: string,
+  input: unknown,
+  output: unknown
+) {
+  if (toolName !== "run_view") {
+    return false;
+  }
+
+  if (!input || typeof input !== "object") {
+    return false;
+  }
+
+  const viewKey = (input as { viewKey?: unknown }).viewKey;
+  if (typeof viewKey !== "string" || !inventoryViewKeys.has(viewKey)) {
+    return false;
+  }
+
+  // Detail views are always card-worthy.
+  if (isDetailView(viewKey)) {
+    return true;
+  }
+
+  // List views only get a card when the result itself is a single record
+  // (otherwise we'd dump the whole catalog for discovery calls).
+  return rowsFromRunViewOutput(output).length === 1;
+}
 
 function renderDynamicToolPart(
   part: DynamicToolUIPart,
@@ -39,13 +79,19 @@ function renderDynamicToolPart(
     state === "output-available" ||
     state === "output-error" ||
     state === "output-denied";
+  const widthClass = "w-[min(100%,450px)]";
+  const showTravelCard =
+    shouldRenderTravelCard(
+      toolName,
+      "input" in part ? part.input : undefined,
+      "output" in part ? part.output : undefined
+    ) && state === "output-available";
 
-  return (
+  const toolAccordion = (
     <Tool
       className="w-[min(100%,450px)]"
       data-testid={`tool-${toolName}`}
       defaultOpen={false}
-      key={key}
     >
       <ToolHeader
         state={state}
@@ -95,13 +141,30 @@ function renderDynamicToolPart(
       </ToolContent>
     </Tool>
   );
+
+  if (showTravelCard) {
+    return (
+      <div className={`${widthClass} flex flex-col gap-2`} key={key}>
+        <RunViewCard
+          input={"input" in part ? part.input : undefined}
+          output={"output" in part ? part.output : undefined}
+        />
+        {toolAccordion}
+      </div>
+    );
+  }
+
+  return (
+    <div className={widthClass} key={key}>
+      {toolAccordion}
+    </div>
+  );
 }
 
 const PurePreviewMessage = ({
   addToolApprovalResponse,
   chatId,
   message,
-  vote,
   isLoading,
   setMessages: _setMessages,
   regenerate: _regenerate,
@@ -112,7 +175,6 @@ const PurePreviewMessage = ({
   addToolApprovalResponse: UseChatHelpers<ChatMessage>["addToolApprovalResponse"];
   chatId: string;
   message: ChatMessage;
-  vote: Vote | undefined;
   isLoading: boolean;
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
@@ -386,12 +448,10 @@ const PurePreviewMessage = ({
 
   const actions = !isReadonly && (
     <MessageActions
-      chatId={chatId}
       isLoading={isLoading}
       key={`action-${message.id}`}
       message={message}
       onEdit={onEdit ? () => onEdit(message) : undefined}
-      vote={vote}
     />
   );
 

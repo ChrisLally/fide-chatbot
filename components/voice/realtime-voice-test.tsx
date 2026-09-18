@@ -1,5 +1,6 @@
 "use client";
 
+import { google } from "@ai-sdk/google";
 import { xai } from "@ai-sdk/xai";
 import {
   Experimental_AbstractRealtimeSession,
@@ -21,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { realtimeInstructions, XAI_VOICE_MODEL } from "@/lib/ai/realtime";
+import { realtimeInstructions, VOICE_MODELS, type VoiceProvider } from "@/lib/ai/realtime";
 import { cn } from "@/lib/utils";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -92,9 +93,16 @@ class VoiceRealtimeSession extends Experimental_AbstractRealtimeSession {
 
 function useVoiceRealtime(options: Experimental_RealtimeSessionOptions) {
   const sessionRef = useRef<VoiceRealtimeSession | null>(null);
+  const prevModelRef = useRef(options.model);
 
-  if (!sessionRef.current) {
+  if (!sessionRef.current || prevModelRef.current !== options.model) {
+    if (sessionRef.current) {
+      sessionRef.current.disconnect();
+      sessionRef.current.stopAudioCapture();
+      sessionRef.current.stopPlayback();
+    }
     sessionRef.current = new VoiceRealtimeSession(options);
+    prevModelRef.current = options.model;
   }
 
   const session = sessionRef.current;
@@ -149,14 +157,19 @@ function useVoiceRealtime(options: Experimental_RealtimeSessionOptions) {
 }
 
 export function RealtimeVoiceTest() {
+  const [selectedProvider, setSelectedProvider] = useState<VoiceProvider>("xai");
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  const model = useMemo(
-    () => xai.experimental_realtime(XAI_VOICE_MODEL),
-    []
-  );
+  const activeModelInfo = VOICE_MODELS[selectedProvider];
+
+  const model = useMemo(() => {
+    if (selectedProvider === "google") {
+      return (google.experimental_realtime as any)(activeModelInfo.id);
+    }
+    return xai.experimental_realtime(activeModelInfo.id);
+  }, [selectedProvider, activeModelInfo.id]);
 
   const sessionConfig = useMemo(
     () => ({
@@ -209,7 +222,7 @@ export function RealtimeVoiceTest() {
   const realtime = useVoiceRealtime({
     model,
     api: {
-      token: `${basePath}/api/realtime/setup`,
+      token: `${basePath}/api/realtime/setup?provider=${selectedProvider}`,
     },
     sessionConfig,
     onToolCall: handleToolCall,
@@ -282,10 +295,10 @@ export function RealtimeVoiceTest() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
-      <div className="space-y-2">
+      <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Voice AI test</h1>
-          <Badge variant="outline">{XAI_VOICE_MODEL}</Badge>
+          <Badge variant="outline">{activeModelInfo.name} ({activeModelInfo.id})</Badge>
           <Badge
             variant={realtime.status === "connected" ? "default" : "secondary"}
           >
@@ -295,9 +308,22 @@ export function RealtimeVoiceTest() {
           {realtime.isPlaying ? <Badge variant="outline">Speaking</Badge> : null}
         </div>
         <p className="text-sm text-muted-foreground">
-          Experimental xAI Grok realtime voice via the AI SDK. Connect, enable
-          your microphone, and talk. You can also send text messages.
+          Realtime voice via the AI SDK. Switch between xAI Grok Voice and Google Gemini Live below.
         </p>
+        <div className="flex items-center gap-2 pt-1">
+          <span className="text-xs font-medium text-muted-foreground">Voice Engine:</span>
+          {(["xai", "google"] as VoiceProvider[]).map((prov) => (
+            <Button
+              key={prov}
+              disabled={isConnected || realtime.status === "connecting"}
+              onClick={() => setSelectedProvider(prov)}
+              size="sm"
+              variant={selectedProvider === prov ? "default" : "outline"}
+            >
+              {VOICE_MODELS[prov].providerName} ({VOICE_MODELS[prov].name})
+            </Button>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

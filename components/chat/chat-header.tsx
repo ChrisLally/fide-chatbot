@@ -4,6 +4,7 @@ import { DatabaseIcon, PanelLeftIcon } from "lucide-react";
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 import { VisibilitySelector, type VisibilityType } from "./visibility-selector";
 
 // Relative path — absolute test.fide.work URL is blocked by Cloudflare
@@ -43,44 +44,53 @@ function PureChatHeader({
   onOpenWorldModel?: () => void;
 }) {
   const { state, toggleSidebar, isMobile } = useSidebar();
-
-  if (state === "collapsed" && !isMobile) {
-    return (
-      <header className="sticky top-0 flex h-14 items-center gap-2 bg-sidebar px-3">
-        <CatalinaLogo />
-      </header>
-    );
-  }
+  const isCollapsedDesktop = state === "collapsed" && !isMobile;
+  const showContextLabel = !isCollapsedDesktop && !isMobile;
 
   return (
-    <header className="sticky top-0 flex h-14 items-center gap-2 bg-sidebar px-3">
-      <Button
-        className="md:hidden"
-        onClick={toggleSidebar}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <PanelLeftIcon className="size-4" />
-      </Button>
+    <header className="sticky top-0 flex h-14 min-w-0 items-center gap-2 bg-sidebar px-3">
+      {!isCollapsedDesktop && (
+        <Button
+          className="shrink-0 md:hidden"
+          onClick={toggleSidebar}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <PanelLeftIcon className="size-4" />
+        </Button>
+      )}
 
-      {!isReadonly && (
+      {!isReadonly && !isCollapsedDesktop && (
         <VisibilitySelector
           chatId={chatId}
+          className="shrink-0"
           selectedVisibilityType={selectedVisibilityType}
         />
       )}
 
-      <CatalinaLogo />
+      <div
+        className={cn(
+          "min-w-0 shrink",
+          !isCollapsedDesktop && "max-sm:hidden"
+        )}
+      >
+        <CatalinaLogo />
+      </div>
 
       {onOpenWorldModel ? (
         <Button
-          className="ml-auto"
+          aria-label="Open context"
+          className="ml-auto shrink-0"
           onClick={onOpenWorldModel}
-          size="sm"
+          size={showContextLabel ? "sm" : "icon-sm"}
           variant="ghost"
         >
           <DatabaseIcon className="size-4" />
-          Context
+          {showContextLabel ? (
+            <span>Context</span>
+          ) : (
+            <span className="sr-only">Context</span>
+          )}
         </Button>
       ) : null}
     </header>

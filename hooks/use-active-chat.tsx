@@ -23,7 +23,6 @@ import { toast } from "@/components/chat/toast";
 import type { VisibilityType } from "@/components/chat/visibility-selector";
 import { useAutoResume } from "@/hooks/use-auto-resume";
 import { DEFAULT_CHAT_MODEL } from "@/lib/ai/models";
-import type { Vote } from "@/lib/db/schema";
 import { ChatbotError } from "@/lib/errors";
 import type { ChatMessage } from "@/lib/types";
 import { fetcher, fetchWithErrorHandlers, generateUUID } from "@/lib/utils";
@@ -42,7 +41,6 @@ type ActiveChatContextValue = {
   visibilityType: VisibilityType;
   isReadonly: boolean;
   isLoading: boolean;
-  votes: Vote[] | undefined;
   currentModelId: string;
   setCurrentModelId: (id: string) => void;
   showCreditCardAlert: boolean;
@@ -236,14 +234,6 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
   const isReadonly = isNewChat ? false : (chatData?.isReadonly ?? false);
 
-  const { data: votes } = useSWR<Vote[]>(
-    !isReadonly && messages.length >= 2
-      ? `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/vote?chatId=${chatId}`
-      : null,
-    fetcher,
-    { revalidateOnFocus: false }
-  );
-
   const value = useMemo<ActiveChatContextValue>(
     () => ({
       chatId,
@@ -259,7 +249,6 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       visibilityType: visibility,
       isReadonly,
       isLoading: !isNewChat && isLoading,
-      votes,
       currentModelId,
       setCurrentModelId,
       showCreditCardAlert,
@@ -279,7 +268,6 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       isReadonly,
       isNewChat,
       isLoading,
-      votes,
       currentModelId,
       showCreditCardAlert,
     ]

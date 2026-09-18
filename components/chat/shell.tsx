@@ -17,6 +17,7 @@ import {
   useArtifact,
   useArtifactSelector,
 } from "@/hooks/use-artifact";
+import { useContextNav } from "@/hooks/use-context-nav";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Artifact } from "./artifact";
@@ -41,7 +42,6 @@ export function ChatShell() {
     visibilityType,
     isReadonly,
     isLoading,
-    votes,
     currentModelId,
     setCurrentModelId,
     showCreditCardAlert,
@@ -55,11 +55,18 @@ export function ChatShell() {
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const [isWorldModelVisible, setIsWorldModelVisible] = useState(false);
   const { setArtifact } = useArtifact();
+  const { category: contextCategory, clearContext } = useContextNav();
   const isRightPanelVisible = isArtifactVisible || isWorldModelVisible;
 
   const openWorldModelPanel = useCallback(() => {
     setIsWorldModelVisible(true);
   }, []);
+
+  useEffect(() => {
+    if (contextCategory) {
+      setIsWorldModelVisible(true);
+    }
+  }, [contextCategory]);
 
   const stopRef = useRef(stop);
   stopRef.current = stop;
@@ -73,8 +80,9 @@ export function ChatShell() {
       setIsWorldModelVisible(false);
       setEditingMessage(null);
       setAttachments([]);
+      clearContext();
     }
-  }, [chatId, setArtifact]);
+  }, [chatId, setArtifact, clearContext]);
 
   return (
     <>
@@ -89,7 +97,7 @@ export function ChatShell() {
             chatId={chatId}
             isReadonly={isReadonly}
             onOpenWorldModel={
-              isRightPanelVisible ? undefined : openWorldModelPanel
+              isWorldModelVisible ? undefined : openWorldModelPanel
             }
             selectedVisibilityType={visibilityType}
           />
@@ -114,7 +122,6 @@ export function ChatShell() {
               selectedModelId={currentModelId}
               setMessages={setMessages}
               status={status}
-              votes={votes}
             />
 
             <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
@@ -177,7 +184,6 @@ export function ChatShell() {
           setWorldModelVisible={setIsWorldModelVisible}
           status={status}
           stop={stop}
-          votes={votes}
         />
       </div>
 

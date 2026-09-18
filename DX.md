@@ -38,7 +38,11 @@ Long-running host is systemd + nginx:
 Redeploy after code changes:
 
 ```bash
-pnpm deploy
+pnpm run deploy
 ```
 
 That is `IS_DEMO=1 pnpm build` plus a restart of `fide-chatbot.service`.
+
+## Data upload inbox
+
+Context drawer → **Upload data** posts to `/api/data/upload` and writes files into `data-inbox/` (override with `DATA_UPLOAD_DIR`). Filenames are `YYYYMMDDTHHMMSSZ__original-name.ext`. This is staging only — not ingested into the Catalina world model yet. Allowed: `.xlsx`, `.xls`, `.csv`, `.md`, `.txt`, `.pdf`, `.json` (max 50MB).

@@ -1,6 +1,7 @@
 import type { NextAuthConfig } from "next-auth";
+import { appBasePath } from "@/lib/constants";
 
-const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const base = appBasePath;
 
 export const authConfig = {
   basePath: "/api/auth",

@@ -1,4 +1,6 @@
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
+import { google } from "@ai-sdk/google";
+import { xai } from "@ai-sdk/xai";
 import { customProvider } from "ai";
 import { isTestEnvironment } from "../constants";
 import { titleModel } from "./models";
@@ -22,6 +24,14 @@ export const myProvider = isTestEnvironment
 export function getLanguageModel(modelId: string) {
   if (isTestEnvironment && myProvider) {
     return myProvider.languageModel(modelId);
+  }
+
+  if (modelId.startsWith("gemini")) {
+    return google(modelId);
+  }
+
+  if (modelId.startsWith("grok")) {
+    return xai(modelId);
   }
 
   return bedrock(modelId);
