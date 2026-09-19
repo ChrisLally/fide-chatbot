@@ -29,31 +29,57 @@ function parseAdvisorLinks(raw: Record<string, unknown>) {
     });
 }
 
-
-export function DestinationCard({ item }: { item: TravelContextItem }) {
+export function DestinationCard({
+  item,
+  showOpenAction = true,
+}: {
+  item: TravelContextItem;
+  showOpenAction?: boolean;
+}) {
   const advisorLinks = parseAdvisorLinks(item.raw);
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
 
   const region = readString(raw, ["region_name", "region", "area"]);
   const vibe = readString(raw, ["vibe", "style"]);
+  const recommended = readString(raw, ["stay_recommended_nights"]);
+  const stayMin = readString(raw, ["stay_min_nights"]);
+  const stayMax = readString(raw, ["stay_max_nights"]);
+  const stayRange =
+    stayMin && stayMax ? `${stayMin}–${stayMax} nights` : stayMin || stayMax;
+  const priority = readString(raw, ["city_priority"]);
+  const landscapes = readString(raw, ["landscapes"]);
+  const iata = readString(raw, ["iata_code"]);
 
   const fields = [
     { label: "Region", value: region },
     { label: "Vibe", value: vibe },
+    { label: "Recommended nights", value: recommended },
+    { label: "Stay range", value: stayRange },
+    { label: "Priority", value: priority },
+    { label: "Landscapes", value: landscapes },
+    { label: "IATA", value: iata },
   ].filter((f) => Boolean(f.value));
 
   return (
     <CardShell
       accent="catalina"
       eyebrow="Destination / Area"
-      onOpen={() => openTravelContext("destination", item.id)}
+      onOpen={
+        showOpenAction
+          ? () => openTravelContext("destination", item.id)
+          : undefined
+      }
       subtitle={item.subtitle}
       title={item.name}
+      entityId={item.id}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {region && <StatusBadge label={region} tone="info" />}
         {vibe && <StatusBadge label={vibe} tone="neutral" />}
+        {recommended ? (
+          <StatusBadge label={`${recommended} nights`} tone="neutral" />
+        ) : null}
       </div>
 
       {item.description && (
@@ -64,7 +90,6 @@ export function DestinationCard({ item }: { item: TravelContextItem }) {
 
       {fields.length > 0 && <FieldGrid fields={fields} />}
 
-
       {advisorLinks.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -74,7 +99,7 @@ export function DestinationCard({ item }: { item: TravelContextItem }) {
             {advisorLinks.map((link) =>
               link.url ? (
                 <a
-                  className="truncate text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
+                  className="truncate text-sm font-medium text-foreground underline-offset-2 hover:underline"
                   href={link.url}
                   key={`${link.label}-${link.url}`}
                   onClick={(event) => event.stopPropagation()}

@@ -14,6 +14,7 @@ const contextQueries = {
   collections: "inventory/collections-all",
   collectionDetail: "inventory/collection",
   sameAsLinks: "inventory/same-as-links",
+  clusterMembers: "inventory/cluster-members",
   advisorLinks: "inventory/advisor-links-all",
 } as const;
 
@@ -35,6 +36,7 @@ const viewToQuery: Record<string, ContextQueryKey> = {
   "inventory/collections-all": "collections",
   "inventory/collection": "collectionDetail",
   "inventory/same-as-links": "sameAsLinks",
+  "inventory/cluster-members": "clusterMembers",
   "inventory/advisor-links-all": "advisorLinks",
 };
 
@@ -71,6 +73,7 @@ export function getViewTitle(viewKey: string): string {
     "inventory/collections-all": "Collections",
     "inventory/collection": "Collection",
     "inventory/same-as-links": "Same-as links",
+    "inventory/cluster-members": "Cluster members",
     "inventory/advisor-links-all": "Advisor links",
   };
   return titles[viewKey] ?? "Travel context";

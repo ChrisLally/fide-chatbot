@@ -22,6 +22,9 @@ const contextQueries = {
     process.env.FIDE_CONTEXT_QUERY_COLLECTION_DETAIL ?? "inventory/collection",
   sameAsLinks:
     process.env.FIDE_CONTEXT_QUERY_SAME_AS ?? "inventory/same-as-links",
+  clusterMembers:
+    process.env.FIDE_CONTEXT_QUERY_CLUSTER_MEMBERS ??
+    "inventory/cluster-members",
   itineraryDetail:
     process.env.FIDE_CONTEXT_QUERY_ITINERARY_DETAIL ?? "inventory/itinerary",
   destinations:
@@ -149,12 +152,40 @@ export async function POST(request: Request) {
     }
 
     const queryKey = contextQueries[input.query];
+    const params = { ...(input.params ?? {}) };
+
+    // Detail SQL matches on fingerprint; peeks often send only fideId.
+    if (
+      typeof params.fideId === "string" &&
+      params.fideId &&
+      (params.subjectFingerprint == null || params.subjectFingerprint === "")
+    ) {
+      const body = params.fideId.replace(/^did:fide:/i, "").replace(/^0x/i, "");
+      if (/^[0-9a-fA-F]{40}$/.test(body)) {
+        params.subjectFingerprint = body.slice(4);
+      }
+    }
+
+    // run_query requires every $param referenced in SQL — fill legacy empties.
+    for (const key of [
+      "hotel_iri",
+      "place_iri",
+      "activity_iri",
+      "attraction_iri",
+      "fideId",
+      "subjectFingerprint",
+    ]) {
+      if (!(key in params)) {
+        params[key] = "";
+      }
+    }
+
     const result = await client.callTool({
       name: "run_query",
       arguments: {
         worldModelKey,
         queryKey,
-        ...(input.params ? { params: input.params } : {}),
+        params,
       },
     });
 

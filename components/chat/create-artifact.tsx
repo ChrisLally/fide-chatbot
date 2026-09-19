@@ -25,6 +25,7 @@ type ArtifactAction<M = any> = {
 
 export type ArtifactToolbarContext = {
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
+  onSaveContent: (updatedContent: string, debounce: boolean) => void;
 };
 
 export type ArtifactToolbarItem = {
@@ -47,6 +48,8 @@ type ArtifactContent<M = any> = {
   isLoading: boolean;
   metadata: M;
   setMetadata: Dispatch<SetStateAction<M>>;
+  /** Optional — itinerary stage Approve uses this to ask Taylor for the next stage. */
+  sendMessage?: UseChatHelpers<ChatMessage>["sendMessage"];
 };
 
 type InitializeParameters<M = any> = {

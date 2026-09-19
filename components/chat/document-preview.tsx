@@ -24,6 +24,7 @@ import {
   LoaderIcon,
 } from "./icons";
 import { ImageEditor } from "./image-editor";
+import { ItineraryEditor } from "./itinerary-editor";
 import { SpreadsheetEditor } from "./sheet-editor";
 import { Editor } from "./text-editor";
 
@@ -288,6 +289,15 @@ const DocumentContent = ({ document }: { document: Document }) => {
           <div className="absolute inset-0">
             <SpreadsheetEditor {...commonProps} />
           </div>
+        </div>
+      ) : document.kind === "itinerary" ? (
+        <div className="relative size-full overflow-hidden">
+          <ItineraryEditor
+            content={document.content ?? ""}
+            isCurrentVersion={true}
+            onSaveContent={handleSaveContent}
+            status={artifact.status}
+          />
         </div>
       ) : document.kind === "image" ? (
         <ImageEditor

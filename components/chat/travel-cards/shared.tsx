@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { FideIdChip } from "@/components/chat/fide-id-chip";
 import { cn } from "@/lib/utils";
 
 export function StatusBadge({
@@ -8,39 +9,20 @@ export function StatusBadge({
   label: string;
   tone?: "neutral" | "success" | "warning" | "luxury" | "info";
 }) {
+  // Keep tone prop for callers; all tones render the same quiet chip.
+  void tone;
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium tracking-wide",
-        tone === "success" &&
-          "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-        tone === "warning" &&
-          "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-        tone === "luxury" &&
-          "bg-amber-500/20 text-amber-900 ring-1 ring-amber-500/30 dark:bg-amber-400/15 dark:text-amber-200",
-        tone === "info" &&
-          "bg-sky-500/15 text-sky-700 dark:text-sky-300",
-        tone === "neutral" && "bg-muted text-muted-foreground"
-      )}
-    >
+    <span className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
       {label}
     </span>
   );
 }
 
-export function toneForPriceTier(value: string) {
-  const normalized = value.toLowerCase();
-  if (normalized.includes("$$$$") || normalized.includes("luxury"))
-    return "luxury" as const;
-  if (normalized.includes("$$$")) return "info" as const;
-  if (normalized.includes("$$")) return "neutral" as const;
+export function toneForPriceTier(_value: string) {
   return "neutral" as const;
 }
 
-export function toneForRating(value: string) {
-  const num = Number.parseFloat(value);
-  if (!Number.isNaN(num) && num >= 4.5) return "luxury" as const;
-  if (!Number.isNaN(num) && num >= 4.0) return "success" as const;
+export function toneForRating(_value: string) {
   return "neutral" as const;
 }
 
@@ -48,6 +30,7 @@ export function CardShell({
   eyebrow,
   title,
   subtitle,
+  entityId,
   children,
   accent = "catalina",
   onOpen,
@@ -55,43 +38,38 @@ export function CardShell({
   eyebrow: string;
   title: string;
   subtitle?: string;
+  /** When set, shows a click-to-expand Fide id under the title. */
+  entityId?: string;
   children: ReactNode;
   accent?: "catalina" | "gold" | "slate";
   onOpen?: () => void;
 }) {
-  const accentClass =
-    accent === "gold"
-      ? "from-amber-500/10 via-amber-500/5 to-transparent border-amber-500/30"
-      : accent === "slate"
-        ? "from-slate-500/10 via-slate-500/5 to-transparent border-border/60"
-        : "from-sky-500/10 via-blue-500/5 to-transparent border-sky-500/20";
+  void accent;
 
   return (
-    <div
-      className={cn(
-        "relative overflow-hidden rounded-2xl border bg-gradient-to-br p-4 shadow-[var(--shadow-card)]",
-        accentClass
-      )}
-    >
+    <div className="rounded-lg border border-border/70 bg-background p-4">
       <div className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {eyebrow}
             </div>
-            <div className="mt-1 text-base font-semibold tracking-tight">
+            <div className="mt-1 text-base font-semibold tracking-tight text-foreground">
               {title}
             </div>
-            {subtitle ? (
-              <div className="mt-1 text-xs text-muted-foreground">
-                {subtitle}
+            {entityId ? (
+              <div className="mt-1">
+                <FideIdChip id={entityId} />
               </div>
+            ) : null}
+            {subtitle ? (
+              <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
             ) : null}
           </div>
           {onOpen ? (
             <button
               aria-label={`Open ${title} in context`}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground"
+              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               onClick={onOpen}
               type="button"
             >
@@ -131,23 +109,23 @@ export function FieldGrid({
     <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
       {fields.map((field) => (
         <div
-          className="rounded-lg border border-border/50 bg-background/60 px-3 py-2"
+          className="rounded-md border border-border/50 px-3 py-2"
           key={field.label}
         >
           <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
             {field.label}
           </dt>
-          <dd className="mt-0.5 text-sm font-medium">
+          <dd className="mt-0.5 text-sm text-foreground">
             {field.onOpen ? (
               <button
-                className="inline-flex max-w-full items-center gap-1 text-left text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+                className="inline-flex max-w-full items-center gap-1 text-left underline-offset-2 hover:underline"
                 onClick={field.onOpen}
                 type="button"
               >
                 <span className="truncate">{field.value}</span>
                 <svg
                   aria-hidden="true"
-                  className="size-3.5 shrink-0"
+                  className="size-3.5 shrink-0 opacity-60"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.75"
@@ -179,7 +157,7 @@ export function TagRow({ tags }: { tags: string[] }) {
     <div className="flex flex-wrap gap-1.5">
       {tags.slice(0, 5).map((tag) => (
         <span
-          className="rounded-md bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground ring-1 ring-border/60"
+          className="rounded-md border border-border/50 px-2 py-0.5 text-[11px] text-muted-foreground"
           key={tag}
         >
           {tag}

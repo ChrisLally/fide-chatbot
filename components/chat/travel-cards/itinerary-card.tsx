@@ -92,7 +92,13 @@ function parseDays(raw: Record<string, unknown>): ItineraryDay[] {
     .filter((day): day is ItineraryDay => Boolean(day && day.day));
 }
 
-export function ItineraryCard({ item }: { item: TravelContextItem }) {
+export function ItineraryCard({
+  item,
+  showOpenAction = true,
+}: {
+  item: TravelContextItem;
+  showOpenAction?: boolean;
+}) {
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
 
@@ -113,9 +119,14 @@ export function ItineraryCard({ item }: { item: TravelContextItem }) {
     <CardShell
       accent="catalina"
       eyebrow="Itinerary template"
-      onOpen={() => openTravelContext("itinerary", item.id)}
+      onOpen={
+        showOpenAction
+          ? () => openTravelContext("itinerary", item.id)
+          : undefined
+      }
       subtitle={item.subtitle}
       title={item.name}
+      entityId={item.id}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {duration && <StatusBadge label={duration} tone="info" />}
@@ -154,7 +165,7 @@ export function ItineraryCard({ item }: { item: TravelContextItem }) {
                   }}
                   type="button"
                 >
-                  <span className="truncate font-medium text-sky-700 dark:text-sky-400">
+                  <span className="truncate font-medium text-foreground">
                     {stop.position}. {stop.name}
                   </span>
                   {stop.nights ? (
@@ -176,7 +187,7 @@ export function ItineraryCard({ item }: { item: TravelContextItem }) {
                           </span>
                           {day.title ? ` — ${day.title}` : ""}
                           {day.visitNames[0] ? (
-                            <span className="text-sky-700/80 dark:text-sky-400/80">
+                            <span className="text-muted-foreground">
                               {" "}
                               · {day.visitNames[0]}
                             </span>
@@ -198,7 +209,7 @@ export function ItineraryCard({ item }: { item: TravelContextItem }) {
                               }
                               return (
                                 <button
-                                  className="rounded border border-border/40 bg-background/60 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-muted/50 dark:text-sky-400"
+                                  className="rounded border border-border/40 bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
                                   key={`${day.day}-h-${iri}`}
                                   onClick={(event) => {
                                     event.stopPropagation();

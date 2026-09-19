@@ -29,6 +29,8 @@ import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment, isTestEnvironment } from "@/lib/constants";
 import { loadFideMcpTools } from "@/lib/fide/mcp-client";
 import { isFideMcpConfigured } from "@/lib/fide/mcp-config";
+import { wrapFideToolsWithBinder } from "@/lib/fide/wrap-fide-tools";
+import { createTurnEntityBinder } from "@/lib/itinerary/entity-binder";
 import {
   createStreamId,
   deleteChatById,
@@ -211,13 +213,14 @@ export async function POST(request: Request) {
       execute: async ({ writer: dataStream }) => {
         let mcpClient: MCPClient | undefined;
         let fideTools: ToolSet = {};
+        const entityBinder = createTurnEntityBinder();
 
         if (fideMcpEnabled && toolsEnabled) {
           try {
             const loaded = await loadFideMcpTools();
             if (loaded) {
               mcpClient = loaded.client;
-              fideTools = loaded.tools;
+              fideTools = wrapFideToolsWithBinder(loaded.tools, entityBinder);
             }
           } catch (error) {
             console.error("Fide MCP connection failed:", error);
@@ -230,12 +233,14 @@ export async function POST(request: Request) {
             session,
             dataStream,
             modelId: chatModel,
+            entityBinder,
           }),
           editDocument: editDocument({ dataStream, session }),
           updateDocument: updateDocument({
             session,
             dataStream,
             modelId: chatModel,
+            entityBinder,
           }),
           requestSuggestions: requestSuggestions({
             session,

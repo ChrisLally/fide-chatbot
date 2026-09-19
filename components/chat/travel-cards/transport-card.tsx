@@ -8,7 +8,13 @@ import {
 } from "@/lib/fide/travel-context";
 import { CardShell, FieldGrid, StatusBadge, TagRow } from "./shared";
 
-export function TransportCard({ item }: { item: TravelContextItem }) {
+export function TransportCard({
+  item,
+  showOpenAction = true,
+}: {
+  item: TravelContextItem;
+  showOpenAction?: boolean;
+}) {
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
 
@@ -44,9 +50,14 @@ export function TransportCard({ item }: { item: TravelContextItem }) {
     <CardShell
       accent="slate"
       eyebrow="Transport Option"
-      onOpen={() => openTravelContext("transportation", item.id)}
+      onOpen={
+        showOpenAction
+          ? () => openTravelContext("transportation", item.id)
+          : undefined
+      }
       subtitle={item.subtitle}
       title={item.name}
+      entityId={item.id}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {mode && <StatusBadge label={mode} tone="info" />}

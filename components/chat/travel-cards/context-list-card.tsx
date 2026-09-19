@@ -73,15 +73,15 @@ export function ContextListCard({
         </div>
       </div>
       <div className="divide-y divide-border/60">
-        {items.slice(0, 5).map((item) => (
+        {items.slice(0, 5).map((item, index) => (
           <button
             className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-            key={item.id}
+            key={`${item.id}:${index}`}
             onClick={() => openTravelContext(item.kind, item.id)}
             type="button"
           >
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium hover:text-sky-600 dark:hover:text-sky-400">
+              <div className="truncate text-sm font-medium hover:underline">
                 {item.name}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">

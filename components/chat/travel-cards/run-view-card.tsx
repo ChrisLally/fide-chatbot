@@ -6,14 +6,8 @@ import {
   type TravelContextItem,
 } from "@/lib/fide/travel-context";
 import { getViewTitle, isDetailView } from "@/lib/fide/view-query-map";
-import { ActivityCard } from "./activity-card";
-import { AttractionCard } from "./attraction-card";
 import { ContextListCard } from "./context-list-card";
-import { DestinationCard } from "./destination-card";
-import { HotelCard } from "./hotel-card";
-import { CollectionCard } from "./collection-card";
-import { ItineraryCard } from "./itinerary-card";
-import { TransportCard } from "./transport-card";
+import { EntityDetail } from "./entity-detail";
 
 type RunViewInput = {
   worldModelKey?: string;
@@ -91,25 +85,7 @@ export function rowsFromRunViewOutput(output: unknown): Record<string, unknown>[
 }
 
 function SingleTravelCard({ item }: { item: TravelContextItem }) {
-  if (item.kind === "hotel") {
-    return <HotelCard item={item} />;
-  }
-  if (item.kind === "activity") {
-    return <ActivityCard item={item} />;
-  }
-  if (item.kind === "attraction") {
-    return <AttractionCard item={item} />;
-  }
-  if (item.kind === "itinerary") {
-    return <ItineraryCard item={item} />;
-  }
-  if (item.kind === "collection") {
-    return <CollectionCard item={item} />;
-  }
-  if (item.kind === "destination") {
-    return <DestinationCard item={item} />;
-  }
-  return <TransportCard item={item} />;
+  return <EntityDetail item={item} showOpenAction />;
 }
 
 export function RunViewCard({

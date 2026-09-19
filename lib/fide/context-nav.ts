@@ -66,6 +66,17 @@ export function travelKindToCategory(kind: TravelContextKind): ContextCategory {
   return travelKindToCategoryMap[kind];
 }
 
+export function categoryToTravelKind(
+  category: ContextCategory
+): TravelContextKind {
+  const entry = (
+    Object.entries(travelKindToCategoryMap) as Array<
+      [TravelContextKind, ContextCategory]
+    >
+  ).find(([, value]) => value === category);
+  return entry?.[0] ?? "destination";
+}
+
 export type ContextNavState = {
   category: ContextCategory | null;
   id: string | null;

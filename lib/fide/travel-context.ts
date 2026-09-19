@@ -60,6 +60,11 @@ export function readString(
   return fallback;
 }
 
+/** Cluster fide_id when present, else the list/member id. For chips / binding. */
+export function canonicalEntityFideId(item: TravelContextItem): string {
+  return readString(item.raw ?? {}, ["fide_id"], item.id);
+}
+
 export function readTags(row: Record<string, unknown>, keys: string[]) {
   const tags = new Set<string>();
 
@@ -130,17 +135,19 @@ export function readPlaceOpenId(
   }
 
   if (role === "place") {
-    return readString(row, ["place_iri", "id", "key"]);
+    return readString(row, ["fide_id", "region_fide_id", "place_iri", "id", "key"]);
   }
 
-  const iri = readString(row, [
+  const id = readString(row, [
+    "region_fide_id",
+    "fide_id",
     "region_iri",
     "place_iri",
     "located_in",
     "location_iri",
   ]);
-  if (iri) {
-    return iri;
+  if (id) {
+    return id;
   }
   return placeIriFromSlug(readString(row, ["region"]));
 }
@@ -156,7 +163,7 @@ export function normalizeHotelRow(
   );
   const id = readString(
     row,
-    ["hotel_iri", "id", "hotel_id", "fide_id", "slug", "key"],
+    ["fide_id", "hotel_iri", "id", "hotel_id", "slug", "key"],
     `hotel-${index}`
   );
   const filter = readString(
@@ -276,7 +283,7 @@ export function normalizeAttractionRow(
   );
   const id = readString(
     row,
-    ["attraction_iri", "id", "key"],
+    ["member_fide_id", "fide_id", "attraction_iri", "id", "key"],
     `attraction-${index}`
   );
   const region = readString(row, ["region_name", "region"], "Attractions");
@@ -313,7 +320,9 @@ export function normalizeActivityRow(
   );
   const id = readString(
     row,
-    ["activity_iri", "id", "key"],
+    // Prefer member id for list uniqueness when several inventory rows share a
+    // statement-anchored cluster fide_id (accepted sameAs).
+    ["member_fide_id", "fide_id", "activity_iri", "id", "key"],
     `activity-${index}`
   );
   const region = readString(row, ["region_name", "region"], "Activities");
@@ -358,7 +367,7 @@ export function normalizeDestinationRow(
   );
   const id = readString(
     row,
-    ["place_iri", "id", "key"],
+    ["fide_id", "place_iri", "id", "key"],
     `destination-${index}`
   );
   const priority = readString(row, ["city_priority", "priority"]);

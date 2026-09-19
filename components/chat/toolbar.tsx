@@ -34,10 +34,10 @@ type ToolProps = {
   setIsToolbarVisible?: Dispatch<SetStateAction<boolean>>;
   isAnimating: boolean;
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
-  onClick: ({
-    sendMessage,
-  }: {
+  onSaveContent: (updatedContent: string, debounce: boolean) => void;
+  onClick: (context: {
     sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
+    onSaveContent: (updatedContent: string, debounce: boolean) => void;
   }) => void;
 };
 
@@ -50,6 +50,7 @@ const Tool = ({
   setIsToolbarVisible,
   isAnimating,
   sendMessage,
+  onSaveContent,
   onClick,
 }: ToolProps) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -74,7 +75,7 @@ const Tool = ({
 
     if (selectedTool === description) {
       setSelectedTool(null);
-      onClick({ sendMessage });
+      onClick({ sendMessage, onSaveContent });
     } else {
       setSelectedTool(description);
     }
@@ -244,12 +245,14 @@ export const Tools = ({
   selectedTool,
   setSelectedTool,
   sendMessage,
+  onSaveContent,
   isAnimating,
   tools,
 }: {
   selectedTool: string | null;
   setSelectedTool: Dispatch<SetStateAction<string | null>>;
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
+  onSaveContent: (updatedContent: string, debounce: boolean) => void;
   isAnimating: boolean;
   tools: ArtifactToolbarItem[];
 }) => {
@@ -267,6 +270,7 @@ export const Tools = ({
           isAnimating={isAnimating}
           key={tool.description}
           onClick={tool.onClick}
+          onSaveContent={onSaveContent}
           selectedTool={selectedTool}
           sendMessage={sendMessage}
           setSelectedTool={setSelectedTool}
@@ -299,6 +303,7 @@ const PureToolbar = ({
   isToolbarVisible: _isToolbarVisible,
   setIsToolbarVisible,
   sendMessage,
+  onSaveContent,
   status,
   stop,
   setMessages,
@@ -312,6 +317,7 @@ const PureToolbar = ({
   setIsToolbarVisible: Dispatch<SetStateAction<boolean>>;
   status: UseChatHelpers<ChatMessage>["status"];
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
+  onSaveContent: (updatedContent: string, debounce: boolean) => void;
   stop: UseChatHelpers<ChatMessage>["stop"];
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
   artifactKind: ArtifactKind;
@@ -450,6 +456,7 @@ const PureToolbar = ({
             <Tools
               isAnimating={isAnimating}
               key="tools"
+              onSaveContent={onSaveContent}
               selectedTool={selectedTool}
               sendMessage={sendMessage}
               setSelectedTool={setSelectedTool}

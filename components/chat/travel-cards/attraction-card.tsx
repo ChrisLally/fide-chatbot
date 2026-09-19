@@ -3,12 +3,19 @@
 import { useContextNav } from "@/hooks/use-context-nav";
 import {
   type TravelContextItem,
+  canonicalEntityFideId,
   readPlaceOpenId,
   readString,
 } from "@/lib/fide/travel-context";
 import { CardShell, FieldGrid, StatusBadge, TagRow } from "./shared";
 
-export function AttractionCard({ item }: { item: TravelContextItem }) {
+export function AttractionCard({
+  item,
+  showOpenAction = true,
+}: {
+  item: TravelContextItem;
+  showOpenAction?: boolean;
+}) {
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
 
@@ -33,9 +40,14 @@ export function AttractionCard({ item }: { item: TravelContextItem }) {
     <CardShell
       accent="catalina"
       eyebrow="Top-10 Guide"
-      onOpen={() => openTravelContext("attraction", item.id)}
+      onOpen={
+        showOpenAction
+          ? () => openTravelContext("attraction", item.id)
+          : undefined
+      }
       subtitle={item.subtitle}
       title={item.name}
+      entityId={canonicalEntityFideId(item)}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {rank && <StatusBadge label={`#${rank}`} tone="info" />}

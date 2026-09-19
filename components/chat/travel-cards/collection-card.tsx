@@ -25,7 +25,13 @@ function parseMembers(raw: Record<string, unknown>) {
   }));
 }
 
-export function CollectionCard({ item }: { item: TravelContextItem }) {
+export function CollectionCard({
+  item,
+  showOpenAction = true,
+}: {
+  item: TravelContextItem;
+  showOpenAction?: boolean;
+}) {
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
   const kind = readString(raw, ["collection_kind", "kind"]);
@@ -41,9 +47,14 @@ export function CollectionCard({ item }: { item: TravelContextItem }) {
     <CardShell
       accent="catalina"
       eyebrow="Signature collection"
-      onOpen={() => openTravelContext("collection", item.id)}
+      onOpen={
+        showOpenAction
+          ? () => openTravelContext("collection", item.id)
+          : undefined
+      }
       subtitle={item.subtitle}
       title={item.name}
+      entityId={item.id}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {kind && <StatusBadge label={kind} tone="info" />}
@@ -75,7 +86,7 @@ export function CollectionCard({ item }: { item: TravelContextItem }) {
                   }}
                   type="button"
                 >
-                  <span className="truncate font-medium text-sky-700 dark:text-sky-400">
+                  <span className="truncate font-medium text-foreground">
                     {member.name}
                   </span>
                   {member.placeName ? (

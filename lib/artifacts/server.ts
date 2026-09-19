@@ -1,9 +1,11 @@
 import type { UIMessageStreamWriter } from "ai";
 import type { Session } from "next-auth";
 import { codeDocumentHandler } from "@/artifacts/code/server";
+import { itineraryDocumentHandler } from "@/artifacts/itinerary/server";
 import { sheetDocumentHandler } from "@/artifacts/sheet/server";
 import { textDocumentHandler } from "@/artifacts/text/server";
 import type { ArtifactKind } from "@/components/chat/artifact";
+import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
 import { saveDocument } from "../db/queries";
 import type { Document } from "../db/schema";
 import type { ChatMessage } from "../types";
@@ -22,6 +24,8 @@ export type CreateDocumentCallbackProps = {
   dataStream: UIMessageStreamWriter<ChatMessage>;
   session: Session;
   modelId: string;
+  /** Turn-scoped allowlist from run_view — used to bind Fide ids. */
+  entityBinder?: TurnEntityBinder;
 };
 
 export type UpdateDocumentCallbackProps = {
@@ -30,6 +34,7 @@ export type UpdateDocumentCallbackProps = {
   dataStream: UIMessageStreamWriter<ChatMessage>;
   session: Session;
   modelId: string;
+  entityBinder?: TurnEntityBinder;
 };
 
 export type DocumentHandler<T = ArtifactKind> = {
@@ -52,6 +57,7 @@ export function createDocumentHandler<T extends ArtifactKind>(config: {
         dataStream: args.dataStream,
         session: args.session,
         modelId: args.modelId,
+        entityBinder: args.entityBinder,
       });
 
       if (args.session?.user?.id) {
@@ -73,6 +79,7 @@ export function createDocumentHandler<T extends ArtifactKind>(config: {
         dataStream: args.dataStream,
         session: args.session,
         modelId: args.modelId,
+        entityBinder: args.entityBinder,
       });
 
       if (args.session?.user?.id) {
@@ -94,6 +101,14 @@ export const documentHandlersByArtifactKind: DocumentHandler[] = [
   textDocumentHandler,
   codeDocumentHandler,
   sheetDocumentHandler,
+  itineraryDocumentHandler,
 ];
 
-export const artifactKinds = ["text", "code", "sheet"] as const;
+/** All persisted artifact kinds (including legacy). */
+export const artifactKinds = ["text", "code", "sheet", "itinerary"] as const;
+
+/**
+ * Kinds Taylor is allowed to create via `createDocument`.
+ * Locked to itinerary so the model cannot fall back to markdown text docs.
+ */
+export const creatableArtifactKinds = ["itinerary"] as const;

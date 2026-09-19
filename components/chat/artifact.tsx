@@ -16,19 +16,28 @@ import useSWR, { useSWRConfig } from "swr";
 import { useWindowSize } from "usehooks-ts";
 import { codeArtifact } from "@/artifacts/code/client";
 import { imageArtifact } from "@/artifacts/image/client";
+import { itineraryArtifact } from "@/artifacts/itinerary/client";
 import { sheetArtifact } from "@/artifacts/sheet/client";
 import { textArtifact } from "@/artifacts/text/client";
 import { initialArtifactData, useArtifact } from "@/hooks/use-artifact";
 import { useContextNav } from "@/hooks/use-context-nav";
 import type { Document } from "@/lib/db/schema";
 import type { ContextCategory } from "@/lib/fide/context-nav";
+import { categoryToTravelKind } from "@/lib/fide/context-nav";
 import {
   extractRows,
   normalizeContextRow,
-  readPlaceOpenId,
   readString,
   type TravelContextItem,
 } from "@/lib/fide/travel-context";
+import {
+  coerceGraphEntityId,
+  fideIdHex,
+  subjectFingerprintFromFideId,
+  type PeekEntityKind,
+} from "@/lib/itinerary/schema";
+import { EntityDetail } from "@/components/chat/travel-cards/entity-detail";
+import { FideIdChip } from "@/components/chat/fide-id-chip";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn, fetcher } from "@/lib/utils";
 import { ArtifactActions } from "./artifact-actions";
@@ -44,6 +53,7 @@ export const artifactDefinitions = [
   codeArtifact,
   imageArtifact,
   sheetArtifact,
+  itineraryArtifact,
 ];
 export type ArtifactKind = (typeof artifactDefinitions)[number]["kind"];
 
@@ -82,20 +92,46 @@ const contextListQueries = {
 } as const satisfies Record<ContextCategory, string>;
 
 const contextDetailQueries = {
-  Hotels: { paramName: "hotel_iri", query: "hotelDetail" },
-  Activities: { paramName: "activity_iri", query: "activityDetail" },
-  Attractions: { paramName: "attraction_iri", query: "attractionDetail" },
+  Hotels: { paramName: "fideId", legacyIriParam: "hotel_iri", query: "hotelDetail" },
+  Activities: {
+    paramName: "fideId",
+    legacyIriParam: "activity_iri",
+    query: "activityDetail",
+  },
+  Attractions: {
+    paramName: "fideId",
+    legacyIriParam: "attraction_iri",
+    query: "attractionDetail",
+  },
   Itineraries: { paramName: "itinerary_iri", query: "itineraryDetail" },
   Collections: { paramName: "collection_iri", query: "collectionDetail" },
-  Destinations: { paramName: "place_iri", query: "destinationDetail" },
+  Destinations: {
+    paramName: "fideId",
+    legacyIriParam: "place_iri",
+    query: "destinationDetail",
+  },
   Transportation: {
     paramName: "option_iri",
     query: "transportationDetail",
   },
 } as const satisfies Record<
   ContextCategory,
-  { paramName: string; query: string }
+  { paramName: string; query: string; legacyIriParam?: string }
 >;
+
+function coerceContextDetailId(
+  category: ContextCategory,
+  id: string
+): string {
+  const kindByCategory: Partial<Record<ContextCategory, PeekEntityKind>> = {
+    Destinations: "destination",
+    Hotels: "hotel",
+    Activities: "activity",
+    Attractions: "attraction",
+  };
+  const kind = kindByCategory[category];
+  return kind ? coerceGraphEntityId(id, kind) : id;
+}
 
 function PureArtifact({
   addToolApprovalResponse: _addToolApprovalResponse,
@@ -213,11 +249,39 @@ function PureArtifact({
         ]
       : null,
     async ([, query, paramName, itemId]: [string, string, string, string]) => {
+      const detail = activeContextCategory
+        ? contextDetailQueries[activeContextCategory]
+        : null;
+      const hex = fideIdHex(itemId);
+      const fingerprint = hex ? subjectFingerprintFromFideId(itemId) : null;
+      const legacyKey =
+        (detail as { legacyIriParam?: string } | null)?.legacyIriParam ??
+        "place_iri";
+      const params =
+        detail?.paramName === "fideId"
+          ? hex
+            ? {
+                fideId: itemId.startsWith("did:fide:")
+                  ? itemId
+                  : `did:fide:${hex}`,
+                subjectFingerprint: fingerprint ?? "",
+                [legacyKey]: "",
+              }
+            : {
+                fideId: "",
+                subjectFingerprint: "",
+                [legacyKey]: coerceContextDetailId(
+                  activeContextCategory!,
+                  itemId
+                ),
+              }
+          : { [paramName]: itemId };
+
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/context/query`,
         {
           body: JSON.stringify({
-            params: { [paramName]: itemId },
+            params,
             query,
           }),
           headers: { "Content-Type": "application/json" },
@@ -577,276 +641,28 @@ function PureArtifact({
     activeContextCategory && contextDetailQueryError
       ? `Could not load the ${activeContextCategory.toLowerCase()} detail record.`
       : null;
-  const selectedDetailFields = selectedDetailRow
-    ? (
-        [
-          {
-            label: "Region",
-            value: readString(selectedDetailRow, ["region_name", "region"]),
-            openId: readPlaceOpenId(selectedDetailRow, "region"),
-            openKind: "destination" as const,
+  const selectedDetailItem =
+    selectedContextItem && activeContextCategory
+      ? {
+          kind: categoryToTravelKind(activeContextCategory),
+          id: selectedContextItem.id,
+          name: selectedContextItem.name,
+          filter: selectedContextItem.filter,
+          subtitle: selectedContextItem.subtitle,
+          description: selectedDetailRow
+            ? readString(
+                selectedDetailRow,
+                ["advisor_note", "description", "summary"],
+                selectedContextItem.description
+              )
+            : selectedContextItem.description,
+          tags: selectedContextItem.tags,
+          raw: {
+            ...(selectedContextItem.raw ?? {}),
+            ...(selectedDetailRow ?? {}),
           },
-          {
-            label: "From",
-            value: readString(selectedDetailRow, ["from_region_name", "from_region"]),
-            openId: readPlaceOpenId(selectedDetailRow, "from"),
-            openKind: "destination" as const,
-          },
-          {
-            label: "To",
-            value: readString(selectedDetailRow, ["to_region_name", "to_region"]),
-            openId: readPlaceOpenId(selectedDetailRow, "to"),
-            openKind: "destination" as const,
-          },
-          { label: "Route", value: readString(selectedDetailRow, ["route"]) },
-          { label: "Mode", value: readString(selectedDetailRow, ["mode"]) },
-          {
-            label: "Duration (hours)",
-            value:
-              readString(selectedDetailRow, ["mode", "distance_km"])
-                ? readString(selectedDetailRow, ["duration"])
-                : "",
-          },
-          {
-            label: "Distance (km)",
-            value: readString(selectedDetailRow, ["distance_km"]),
-          },
-          { label: "Format", value: readString(selectedDetailRow, ["format"]) },
-          {
-            label: "Guide rank",
-            value: readString(selectedDetailRow, ["guide_rank", "position"]),
-          },
-          {
-            label: "Source guide",
-            value: readString(selectedDetailRow, ["source_guide"]),
-          },
-          {
-            label: "Duration",
-            value: readString(selectedDetailRow, ["mode", "distance_km"])
-              ? ""
-              : readString(selectedDetailRow, ["duration"]),
-          },
-          {
-            label: "Best for",
-            value: readString(selectedDetailRow, ["best_for"]),
-          },
-          {
-            label: "When to go",
-            value: readString(selectedDetailRow, ["when_to_go"]),
-          },
-          {
-            label: "Recommended nights",
-            value: readString(selectedDetailRow, ["stay_recommended_nights"]),
-          },
-          {
-            label: "Stay range",
-            value: (() => {
-              const min = readString(selectedDetailRow, ["stay_min_nights"]);
-              const max = readString(selectedDetailRow, ["stay_max_nights"]);
-              if (min && max) {
-                return `${min}–${max} nights`;
-              }
-              return min || max;
-            })(),
-          },
-          {
-            label: "Priority",
-            value: readString(selectedDetailRow, ["city_priority"]),
-          },
-          {
-            label: "Landscapes",
-            value: readString(selectedDetailRow, ["landscapes"]),
-          },
-          {
-            label: "IATA",
-            value: readString(selectedDetailRow, ["iata_code"]),
-          },
-          {
-            label: "Address",
-            value: readString(selectedDetailRow, ["address"]),
-          },
-          {
-            label: "Telephone",
-            value: readString(selectedDetailRow, ["telephone"]),
-          },
-          {
-            label: "Affiliate links",
-            value: readString(selectedDetailRow, ["affiliate_links"]),
-            isLinkList: true,
-          },
-          { label: "Price tier", value: readString(selectedDetailRow, ["price_tier", "price"]) },
-          { label: "Internal rating", value: readString(selectedDetailRow, ["internal_rating"]) },
-          { label: "Public rating", value: readString(selectedDetailRow, ["public_rating"]) },
-          { label: "Walkability", value: readString(selectedDetailRow, ["walkability"]) },
-          { label: "Times sent", value: readString(selectedDetailRow, ["times_sent"]) },
-          { label: "Room tip", value: readString(selectedDetailRow, ["room_tip"]) },
-          { label: "Booking tip", value: readString(selectedDetailRow, ["booking_tip"]) },
-          { label: "Caution", value: readString(selectedDetailRow, ["caution_note"]) },
-        ] as Array<{
-          label: string;
-          value: string;
-          openId?: string;
-          openKind?: "hotel" | "activity" | "attraction" | "itinerary" | "collection" | "destination" | "transportation";
-          isLinkList?: boolean;
-        }>
-      ).filter((field) => field.value)
-    : [];
-  const selectedItineraryDays = (() => {
-    if (!selectedDetailRow || activeContextCategory !== "Itineraries") {
-      return [] as Array<{
-        day: number;
-        title: string;
-        summary: string;
-        stopPosition: number;
-        visitNames: string[];
-        visitIris: string[];
-        highlightNames: string[];
-        highlightIris: string[];
-      }>;
-    }
-    const value = selectedDetailRow.days_json;
-    let parsed: unknown = value;
-    if (typeof value === "string" && value.trim()) {
-      try {
-        parsed = JSON.parse(value);
-      } catch {
-        return [];
-      }
-    }
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return null;
-        }
-        const row = entry as Record<string, unknown>;
-        const visitNames = String(row.visit_names ?? "")
-          .split(",")
-          .map((part) => part.trim())
-          .filter(Boolean);
-        const visitIris = String(row.visit_iris ?? "")
-          .split(",")
-          .map((part) => part.trim())
-          .filter(Boolean);
-        const highlightNames = String(row.highlight_names ?? "")
-          .split(",")
-          .map((part) => part.trim())
-          .filter(Boolean);
-        const highlightIris = String(row.highlight_iris ?? "")
-          .split(",")
-          .map((part) => part.trim())
-          .filter(Boolean);
-        return {
-          day: Number(row.day) || 0,
-          title: String(row.title ?? ""),
-          summary: String(row.summary ?? ""),
-          stopPosition: Number(row.stop_position) || 0,
-          visitNames,
-          visitIris,
-          highlightNames,
-          highlightIris,
-        };
-      })
-      .filter(
-        (
-          day
-        ): day is {
-          day: number;
-          title: string;
-          summary: string;
-          stopPosition: number;
-          visitNames: string[];
-          visitIris: string[];
-          highlightNames: string[];
-          highlightIris: string[];
-        } => Boolean(day && day.day)
-      );
-  })();
-  const selectedItineraryStops = (() => {
-    if (!selectedDetailRow || activeContextCategory !== "Itineraries") {
-      return [] as Array<{
-        position: number;
-        name: string;
-        nights: string;
-        placeIri: string;
-      }>;
-    }
-    const names = readString(selectedDetailRow, ["stop_place_names"])
-      .split("|")
-      .map((part) => part.trim())
-      .filter(Boolean);
-    const iris = readString(selectedDetailRow, ["stop_place_iris"])
-      .split("|")
-      .map((part) => part.trim());
-    const nights = readString(selectedDetailRow, ["stop_nights"])
-      .split("|")
-      .map((part) => part.trim());
-    return names.map((name, index) => ({
-      position: index + 1,
-      name,
-      nights: nights[index] || "",
-      placeIri: iris[index] || "",
-    }));
-  })();
-  const selectedCollectionMembers = (() => {
-    if (!selectedDetailRow || activeContextCategory !== "Collections") {
-      return [] as Array<{
-        name: string;
-        placeIri: string;
-        placeName: string;
-      }>;
-    }
-    const names = readString(selectedDetailRow, ["member_names"])
-      .split("|")
-      .map((part) => part.trim())
-      .filter(Boolean);
-    const placeIris = readString(selectedDetailRow, ["member_place_iris"])
-      .split("|")
-      .map((part) => part.trim());
-    const placeNames = readString(selectedDetailRow, ["member_place_names"])
-      .split("|")
-      .map((part) => part.trim());
-    return names.map((name, index) => ({
-      name,
-      placeIri: placeIris[index] || "",
-      placeName: placeNames[index] || "",
-    }));
-  })();
-  const selectedAdvisorLinks = (() => {
-    if (!selectedDetailRow || activeContextCategory !== "Destinations") {
-      return [] as Array<{ label: string; url: string }>;
-    }
-    const labels = readString(selectedDetailRow, ["advisor_link_labels"])
-      .split("|")
-      .map((part) => part.trim())
-      .filter(Boolean);
-    const urls = readString(selectedDetailRow, ["advisor_link_urls"])
-      .split("|")
-      .map((part) => part.trim());
-    if (labels.length > 0) {
-      return labels.map((label, index) => ({
-        label,
-        url: urls[index] || "",
-      }));
-    }
-    return readString(selectedDetailRow, ["advisor_links"])
-      .split("|")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const [label, url] = part.split("::").map((piece) => piece.trim());
-        return { label: label || part, url: url || "" };
-      })
-      .filter((link) => Boolean(link.url));
-  })();
-  const selectedReviews = selectedDetailRow
-    ? readString(selectedDetailRow, ["guest_reviews"])
-        .split("\n")
-        .map((review) => review.trim())
-        .filter(Boolean)
-    : [];
+        } satisfies TravelContextItem
+      : null;
   const contextFilters = [
     "All",
     ...Array.from(new Set(contextItems.map((item) => item.filter))).filter(
@@ -948,6 +764,11 @@ function PureArtifact({
                       ? contextCategory
                       : "Live Catalina Quest inventory"}
                   </div>
+                  {selectedContextItem?.id ? (
+                    <div className="mt-0.5">
+                      <FideIdChip id={selectedContextItem.id} />
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -968,297 +789,8 @@ function PureArtifact({
                       {contextDetailError}
                     </div>
                   ) : null}
-                  <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-                    <div className="text-sm font-medium">
-                      {selectedContextItem.subtitle}
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                      {selectedDetailRow
-                        ? readString(
-                            selectedDetailRow,
-                            ["advisor_note", "description", "summary"],
-                            selectedContextItem.description
-                          )
-                        : selectedContextItem.description}
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {selectedContextItem.tags.map((tag) => (
-                        <span
-                          className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
-                          key={tag}
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  {selectedDetailFields.length > 0 ? (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {selectedDetailFields.map((field) => (
-                        <div
-                          className={cn(
-                            "rounded-lg border border-border/60 bg-card/40 p-3",
-                            field.isLinkList && "sm:col-span-2"
-                          )}
-                          key={field.label}
-                        >
-                          <div className="text-[11px] font-medium uppercase text-muted-foreground">
-                            {field.label}
-                          </div>
-                          {field.openId && field.openKind ? (
-                            <button
-                              className="mt-1 inline-flex max-w-full items-center gap-1 text-left text-sm leading-5 text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
-                              onClick={() =>
-                                openTravelContext(field.openKind!, field.openId!)
-                              }
-                              type="button"
-                            >
-                              <span className="truncate">{field.value}</span>
-                              <ArrowLeftIcon className="size-3.5 shrink-0 rotate-180" />
-                            </button>
-                          ) : field.isLinkList ? (
-                            <div className="mt-1 flex flex-col gap-1.5">
-                              {field.value
-                                .split(/[|,]/)
-                                .map((link) => link.trim())
-                                .filter((link) => /^https?:\/\//i.test(link))
-                                .map((link) => (
-                                  <a
-                                    className="truncate text-sm leading-5 text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
-                                    href={link}
-                                    key={link}
-                                    rel="noreferrer"
-                                    target="_blank"
-                                  >
-                                    {link}
-                                  </a>
-                                ))}
-                            </div>
-                          ) : (
-                            <div className="mt-1 text-sm leading-5">
-                              {field.value}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {selectedItineraryStops.length > 0 ? (
-                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-                      <div className="text-[11px] font-medium uppercase text-muted-foreground">
-                        Stops
-                      </div>
-                      <div className="mt-3 flex flex-col gap-3">
-                        {selectedItineraryStops.map((stop) => {
-                          const stopDays = selectedItineraryDays.filter(
-                            (day) => day.stopPosition === stop.position
-                          );
-                          return (
-                            <div
-                              className="rounded-md border border-border/50 bg-background/40 px-3 py-2.5"
-                              key={`${stop.position}-${stop.placeIri || stop.name}`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                    Stop {stop.position}
-                                    {stop.nights
-                                      ? ` · ${stop.nights} night${stop.nights === "1" ? "" : "s"}`
-                                      : ""}
-                                  </div>
-                                  {stop.placeIri ? (
-                                    <button
-                                      className="mt-0.5 inline-flex max-w-full items-center gap-1 text-left text-sm font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
-                                      onClick={() =>
-                                        openTravelContext(
-                                          "destination",
-                                          stop.placeIri
-                                        )
-                                      }
-                                      type="button"
-                                    >
-                                      <span className="truncate">{stop.name}</span>
-                                      <ArrowLeftIcon className="size-3.5 shrink-0 rotate-180" />
-                                    </button>
-                                  ) : (
-                                    <div className="mt-0.5 text-sm font-medium">
-                                      {stop.name}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              {stopDays.length > 0 ? (
-                                <div className="mt-2.5 flex flex-col gap-2 border-border/40 border-t pt-2.5">
-                                  {stopDays.map((day) => (
-                                    <div
-                                      className="min-w-0"
-                                      key={`${stop.position}-day-${day.day}`}
-                                    >
-                                      <div className="text-sm font-medium">
-                                        Day {day.day}
-                                        {day.title ? ` — ${day.title}` : ""}
-                                      </div>
-                                      {day.summary ? (
-                                        <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-                                          {day.summary}
-                                        </p>
-                                      ) : null}
-                                      {(day.visitNames.length > 0 ||
-                                        day.highlightNames.length > 0) ? (
-                                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                          {day.visitNames.map((visitName, index) => {
-                                            const visitIri =
-                                              day.visitIris[index] || "";
-                                            if (visitIri) {
-                                              return (
-                                                <button
-                                                  className="rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 text-xs font-medium text-sky-700 transition-colors hover:bg-muted/50 dark:text-sky-400"
-                                                  key={`${day.day}-v-${visitIri}`}
-                                                  onClick={() =>
-                                                    openTravelContext(
-                                                      "destination",
-                                                      visitIri
-                                                    )
-                                                  }
-                                                  type="button"
-                                                >
-                                                  {visitName}
-                                                </button>
-                                              );
-                                            }
-                                            return (
-                                              <span
-                                                className="rounded-md border border-border/50 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground"
-                                                key={`${day.day}-v-${visitName}`}
-                                              >
-                                                {visitName}
-                                              </span>
-                                            );
-                                          })}
-                                          {day.highlightNames.map(
-                                            (highlightName, index) => {
-                                              const highlightIri =
-                                                day.highlightIris[index] || "";
-                                              const kind = highlightIri.includes(
-                                                "#activity="
-                                              )
-                                                ? "activity"
-                                                : "attraction";
-                                              if (highlightIri) {
-                                                return (
-                                                  <button
-                                                    className="rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 text-xs font-medium text-sky-700 transition-colors hover:bg-muted/50 dark:text-sky-400"
-                                                    key={`${day.day}-h-${highlightIri}`}
-                                                    onClick={() =>
-                                                      openTravelContext(
-                                                        kind,
-                                                        highlightIri
-                                                      )
-                                                    }
-                                                    type="button"
-                                                  >
-                                                    {highlightName}
-                                                  </button>
-                                                );
-                                              }
-                                              return (
-                                                <span
-                                                  className="rounded-md border border-border/50 bg-muted/20 px-2 py-0.5 text-xs text-muted-foreground"
-                                                  key={`${day.day}-h-${highlightName}`}
-                                                >
-                                                  {highlightName}
-                                                </span>
-                                              );
-                                            }
-                                          )}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedCollectionMembers.length > 0 ? (
-                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-                      <div className="text-[11px] font-medium uppercase text-muted-foreground">
-                        Members
-                      </div>
-                      <div className="mt-3 flex flex-col gap-2">
-                        {selectedCollectionMembers.map((member) => (
-                          <div
-                            className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2"
-                            key={member.name}
-                          >
-                            <div className="min-w-0">
-                              {member.placeIri ? (
-                                <button
-                                  className="inline-flex max-w-full items-center gap-1 text-left text-sm font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
-                                  onClick={() =>
-                                    openTravelContext(
-                                      "destination",
-                                      member.placeIri
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  <span className="truncate">{member.name}</span>
-                                  <ArrowLeftIcon className="size-3.5 shrink-0 rotate-180" />
-                                </button>
-                              ) : (
-                                <div className="text-sm font-medium">
-                                  {member.name}
-                                </div>
-                              )}
-                              {member.placeName ? (
-                                <div className="mt-0.5 text-xs text-muted-foreground">
-                                  {member.placeName}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedAdvisorLinks.length > 0 ? (
-                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-                      <div className="text-[11px] font-medium uppercase text-muted-foreground">
-                        Advisor links
-                      </div>
-                      <div className="mt-3 flex flex-col gap-2">
-                        {selectedAdvisorLinks.map((link) => (
-                          <a
-                            className="truncate text-sm font-medium text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
-                            href={link.url}
-                            key={`${link.label}-${link.url}`}
-                            rel="noreferrer"
-                            target="_blank"
-                          >
-                            {link.label}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedReviews.length > 0 ? (
-                    <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-                      <div className="text-sm font-medium">Guest reviews</div>
-                      <div className="mt-3 flex flex-col gap-3">
-                        {selectedReviews.map((review) => (
-                          <p
-                            className="border-border/60 border-l-2 pl-3 text-sm leading-6 text-muted-foreground"
-                            key={review}
-                          >
-                            {review}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
+                  {selectedDetailItem ? (
+                    <EntityDetail item={selectedDetailItem} />
                   ) : null}
                 </div>
               ) : (
@@ -1341,10 +873,10 @@ function PureArtifact({
                       </div>
                     ) : null}
                     {!isContextLoading &&
-                      visibleContextItems.map((item) => (
+                      visibleContextItems.map((item, index) => (
                         <button
                           className="rounded-lg border border-border/60 bg-card/40 p-4 text-left transition-colors hover:border-border hover:bg-card"
-                          key={item.id}
+                          key={`${item.id}:${index}`}
                           onClick={() => {
                             if (contextCategory) {
                               openContext(contextCategory as ContextCategory, item.id);
@@ -1480,6 +1012,7 @@ function PureArtifact({
           metadata={metadata}
           mode={mode}
           onSaveContent={saveContent}
+          sendMessage={sendMessage}
           setMetadata={setMetadata}
           status={artifact.status}
           suggestions={[]}
@@ -1507,6 +1040,7 @@ function PureArtifact({
                 setArtifact((prev) => ({ ...prev, isVisible: false }));
               }}
               sendMessage={sendMessage}
+              onSaveContent={saveContent}
               setIsToolbarVisible={setIsToolbarVisible}
               setMessages={setMessages}
               status={status}
