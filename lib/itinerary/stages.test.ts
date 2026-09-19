@@ -67,6 +67,42 @@ describe("itinerary stages", () => {
     const next = approveCurrentStage(sample);
     expect(ensureWorkflow(next).stage).toBe("stays");
     expect(ensureWorkflow(next).approved.route).toBeTruthy();
+    expect(ensureWorkflow(next).approved.stays).toBeUndefined();
+    expect(ensureWorkflow(next).approved.days).toBeUndefined();
+  });
+
+  it("does not treat hotels+blocks as already complete when workflow is missing", () => {
+    const filled: ClientItinerary = {
+      ...sample,
+      workflow: undefined,
+      stops: [
+        {
+          ...sample.stops[0],
+          hotelId: "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a",
+          hotelName: "Adina",
+        },
+        sample.stops[1],
+      ],
+      days: [
+        {
+          dayNumber: 1,
+          stopIndex: 0,
+          title: "Day",
+          description: "",
+          blocks: [
+            {
+              when: "morning",
+              entityId: "did:fide:0x3120b1adca8b4d76b4a1616779887e8943b1c32e",
+              entityName: "Sydney Opera House",
+              entityKind: "attraction",
+            },
+          ],
+        },
+      ],
+    };
+    expect(ensureWorkflow(filled).stage).toBe("route");
+    const next = approveCurrentStage(filled);
+    expect(ensureWorkflow(next).stage).toBe("stays");
   });
 
   it("reopens route and clears later approvals", () => {

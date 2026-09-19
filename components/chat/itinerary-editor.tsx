@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import type { UseChatHelpers } from "@ai-sdk/react";
 import { CheckIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -23,7 +22,6 @@ import {
   approveCurrentStage,
   ensureWorkflow,
   reopenStage,
-  stageAdvancePrompt,
   syncDaysToNights,
   type ItineraryStage,
 } from "@/lib/itinerary/stages";
@@ -32,7 +30,6 @@ import {
   transferSlots,
   type TransferSlot,
 } from "@/lib/itinerary/transfers";
-import type { ChatMessage } from "@/lib/types";
 import { DocumentSkeleton } from "@/components/chat/document-skeleton";
 import {
   ItineraryEntityPeek,
@@ -428,13 +425,11 @@ export function ItineraryEditor({
   status,
   isCurrentVersion,
   onSaveContent,
-  sendMessage,
 }: {
   content: string;
   status: "streaming" | "idle";
   isCurrentVersion: boolean;
   onSaveContent: (updatedContent: string, debounce: boolean) => void;
-  sendMessage?: UseChatHelpers<ChatMessage>["sendMessage"];
 }) {
   const [peek, setPeek] = useState<PeekTarget | null>(null);
   const parsed = parseClientItinerary(content);
@@ -489,14 +484,7 @@ export function ItineraryEditor({
     }
     const next = approveCurrentStage(itinerary);
     onSaveContent(serializeClientItinerary(next), false);
-    const advanced = ensureWorkflow(next).stage;
     toast.success(`${STAGE_LABELS[stage]} approved`);
-    if (sendMessage) {
-      void sendMessage({
-        role: "user",
-        parts: [{ type: "text", text: stageAdvancePrompt(advanced) }],
-      });
-    }
   };
 
   const handleReopen = (target: "route" | "stays" | "days") => {

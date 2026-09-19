@@ -33,29 +33,13 @@ export function emptyWorkflow(stage: ItineraryStage = "route"): ItineraryWorkflo
   return { stage, approved: {} };
 }
 
-/** Infer workflow for legacy itineraries that lack the field. */
+/** Infer workflow for legacy itineraries that lack the field. Never skip ahead. */
 export function ensureWorkflow(itinerary: ClientItinerary): ItineraryWorkflow {
   if (itinerary.workflow?.stage) {
     return {
       stage: itinerary.workflow.stage,
       approved: { ...itinerary.workflow.approved },
     };
-  }
-
-  const hasHotels = itinerary.stops.some((s) => Boolean(s.hotelId));
-  const hasBlocks = itinerary.days.some((d) => (d.blocks?.length ?? 0) > 0);
-  if (hasHotels && hasBlocks) {
-    return {
-      stage: "complete",
-      approved: {
-        route: "legacy",
-        stays: "legacy",
-        days: "legacy",
-      },
-    };
-  }
-  if (hasHotels) {
-    return { stage: "days", approved: { route: "legacy", stays: "legacy" } };
   }
   return emptyWorkflow("route");
 }

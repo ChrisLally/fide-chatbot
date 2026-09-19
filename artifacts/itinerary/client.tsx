@@ -30,13 +30,12 @@ export const itineraryArtifact = new Artifact<"itinerary", Metadata>({
       }));
     }
   },
-  content: ({ content, onSaveContent, status, isCurrentVersion, sendMessage }) => {
+  content: ({ content, onSaveContent, status, isCurrentVersion }) => {
     return (
       <ItineraryEditor
         content={content}
         isCurrentVersion={isCurrentVersion}
         onSaveContent={onSaveContent}
-        sendMessage={sendMessage}
         status={status}
       />
     );
