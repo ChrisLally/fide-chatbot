@@ -12,7 +12,7 @@ type EditDocumentProps = {
 export const editDocument = ({ session, dataStream }: EditDocumentProps) =>
   tool({
     description:
-      "Make a targeted edit to an existing artifact by finding and replacing an exact string. Preferred over updateDocument for small changes. The old_string must match exactly.",
+      "Make a targeted edit to an existing text/code/sheet artifact by find-and-replace. Do not use on itineraries — use patchItinerary.",
     inputSchema: z.object({
       id: z.string().describe("The ID of the artifact to edit"),
       old_string: z
@@ -37,6 +37,13 @@ export const editDocument = ({ session, dataStream }: EditDocumentProps) =>
 
       if (document.userId !== session.user?.id) {
         return { error: "Forbidden" };
+      }
+
+      if (document.kind === "itinerary") {
+        return {
+          error:
+            "editDocument cannot patch itinerary JSON. Use patchItinerary (setStopHotel, setDayBlocks, setStopNights, …).",
+        };
       }
 
       if (!document.content) {

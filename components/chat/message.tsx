@@ -379,7 +379,7 @@ const PurePreviewMessage = ({
       );
     }
 
-    if (type === "tool-updateDocument") {
+    if (type === "tool-updateDocument" || type === "tool-patchItinerary") {
       const { toolCallId } = part;
 
       if (part.output && "error" in part.output) {
@@ -388,7 +388,7 @@ const PurePreviewMessage = ({
             className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
             key={toolCallId}
           >
-            Error updating document: {String(part.output.error)}
+            Error patching itinerary: {String(part.output.error)}
           </div>
         );
       }

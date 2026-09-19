@@ -21,7 +21,7 @@ export const updateDocument = ({
 }: UpdateDocumentProps) =>
   tool({
     description:
-      "Full rewrite of an existing artifact. Only use for major changes where most content needs replacing. Prefer editDocument for targeted changes.",
+      "Full rewrite of an existing non-itinerary artifact. Do NOT use for itineraries — call patchItinerary instead.",
     inputSchema: z.object({
       id: z.string().describe("The ID of the artifact to rewrite"),
       description: z
@@ -40,6 +40,13 @@ export const updateDocument = ({
 
       if (document.userId !== session.user?.id) {
         return { error: "Forbidden" };
+      }
+
+      if (document.kind === "itinerary") {
+        return {
+          error:
+            "updateDocument is disabled for itineraries. Use patchItinerary with one typed op (setStopHotel, proposeDay, setStopNights, …).",
+        };
       }
 
       dataStream.write({

@@ -22,10 +22,9 @@ import {
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
-import { editDocument } from "@/lib/ai/tools/edit-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
+import { patchItinerary } from "@/lib/ai/tools/patch-itinerary";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
-import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment, isTestEnvironment } from "@/lib/constants";
 import { loadFideMcpTools } from "@/lib/fide/mcp-client";
 import { isFideMcpConfigured } from "@/lib/fide/mcp-config";
@@ -235,11 +234,9 @@ export async function POST(request: Request) {
             modelId: chatModel,
             entityBinder,
           }),
-          editDocument: editDocument({ dataStream, session }),
-          updateDocument: updateDocument({
+          patchItinerary: patchItinerary({
             session,
             dataStream,
-            modelId: chatModel,
             entityBinder,
           }),
           requestSuggestions: requestSuggestions({

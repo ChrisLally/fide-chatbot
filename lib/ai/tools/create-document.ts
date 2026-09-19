@@ -6,6 +6,7 @@ import {
   documentHandlersByArtifactKind,
 } from "@/lib/artifacts/server";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
+import { proposeRouteSchema } from "@/lib/itinerary/patch";
 import type { ChatMessage } from "@/lib/types";
 import { generateUUID } from "@/lib/utils";
 
@@ -24,14 +25,19 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create a structured Catalina client itinerary artifact (JSON canvas). Only kind 'itinerary' is allowed — never text/markdown, code, or sheet. After this tool succeeds, do not call editDocument or updateDocument unless the user explicitly asks for changes.",
+      "Create a Catalina itinerary artifact (kind: itinerary). Pass route.stops with placeId (did:fide:0x… from places-search) + nights. After create, patchItinerary with hotelId / entityId — never titles.",
     inputSchema: z.object({
       title: z.string().describe("The title of the itinerary"),
       kind: z
         .enum(creatableArtifactKinds)
         .describe("REQUIRED. Must be 'itinerary'."),
+      route: proposeRouteSchema
+        .optional()
+        .describe(
+          "Route slice: stops with placeId (did:fide:0x…) + nights, optional transfers.",
+        ),
     }),
-    execute: async ({ title, kind }) => {
+    execute: async ({ title, kind, route }) => {
       const id = generateUUID();
 
       dataStream.write({
@@ -75,6 +81,7 @@ export const createDocument = ({
           session,
           modelId,
           entityBinder,
+          route,
         });
       } catch (error) {
         const message =
@@ -93,7 +100,7 @@ export const createDocument = ({
         title,
         kind,
         content:
-          "A structured itinerary was generated, saved, and is now visible to the user. Do not call editDocument or updateDocument unless the user explicitly asks for changes.",
+          "A structured itinerary was generated, saved, and is now visible. Use patchItinerary for hotels, days, nights, and edits.",
       };
     },
   });

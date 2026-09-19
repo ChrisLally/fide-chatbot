@@ -1,8 +1,5 @@
 import { streamText } from "ai";
-import {
-  itineraryPrompt,
-  updateDocumentPrompt,
-} from "@/lib/ai/prompts";
+import { itineraryPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocumentHandler } from "@/lib/artifacts/server";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
@@ -15,6 +12,7 @@ import {
   type ClientItinerary,
 } from "@/lib/itinerary/schema";
 import { verifyItineraryStage } from "@/lib/itinerary/stage-verifier";
+import { materializeRoute } from "@/lib/itinerary/patch";
 import {
   ensureWorkflow,
   mergeStageUpdate,
@@ -241,35 +239,29 @@ ${lastDraft.slice(0, 6000)}`;
 
 export const itineraryDocumentHandler = createDocumentHandler<"itinerary">({
   kind: "itinerary",
-  onCreateDocument: async ({ title, dataStream, modelId, entityBinder }) => {
+  onCreateDocument: async ({ title, dataStream, modelId, entityBinder, route }) => {
+    if (route?.stops?.length) {
+      const result = materializeRoute(title, route, entityBinder);
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      const serialized = serializeClientItinerary(result.itinerary);
+      publishDraft(dataStream, serialized);
+      return serialized;
+    }
+
     return generateValidItineraryJson({
       modelId,
       baseSystem: itineraryPrompt,
-      prompt: `${title}\n\nCreate the ROUTE stage only (stops + nights + transport transfers between them).`,
+      prompt: `${title}\n\nCreate the ROUTE stage only (stops + nights + transport transfers between them). Prefer passing stops on createDocument instead of this fallback.`,
       dataStream,
       entityBinder,
       stage: "route",
     });
   },
-  onUpdateDocument: async ({
-    document,
-    description,
-    dataStream,
-    modelId,
-    entityBinder,
-  }) => {
-    const previousParsed = parseClientItinerary(document.content ?? "");
-    const previous = previousParsed.ok ? previousParsed.data : undefined;
-    const stage = previous ? ensureWorkflow(previous).stage : "route";
-
-    return generateValidItineraryJson({
-      modelId,
-      baseSystem: updateDocumentPrompt(document.content, "itinerary"),
-      prompt: description,
-      dataStream,
-      entityBinder,
-      stage: stage === "complete" ? "complete" : stage,
-      previous,
-    });
+  onUpdateDocument: async () => {
+    throw new Error(
+      "updateDocument is disabled for itineraries. Use patchItinerary with a single typed op."
+    );
   },
 });

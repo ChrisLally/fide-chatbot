@@ -326,11 +326,11 @@ export function bindItineraryToAllowlist(
 
   const stops = itinerary.stops.flatMap((stop, index) => {
     const place =
-      findByName(entities, stop.placeName, "destination") ??
       (stop.placeId
         ? findById(entities, stop.placeId, "destination")
         : null) ??
-      acceptSuppliedFideId(stop.placeId, stop.placeName, "destination");
+      acceptSuppliedFideId(stop.placeId, stop.placeName, "destination") ??
+      findByName(entities, stop.placeName, "destination");
     if (!place) {
       omitted.push(`stop ${index + 1} "${stop.placeName}"`);
       return [];
@@ -341,11 +341,9 @@ export function bindItineraryToAllowlist(
     let hotelName = stop.hotelName;
     if (hotelName || hotelId) {
       const hotel =
-        (hotelName
-          ? findByName(entities, hotelName, "hotel")
-          : null) ??
         (hotelId ? findById(entities, hotelId, "hotel") : null) ??
-        acceptSuppliedFideId(hotelId, hotelName || "", "hotel");
+        acceptSuppliedFideId(hotelId, hotelName || "", "hotel") ??
+        (hotelName ? findByName(entities, hotelName, "hotel") : null);
       if (hotel) {
         hotelId = hotel.fideId;
         hotelName = hotel.name;
@@ -373,11 +371,11 @@ export function bindItineraryToAllowlist(
   const keptOldIndexes: number[] = [];
   itinerary.stops.forEach((stop, index) => {
     const place =
-      findByName(entities, stop.placeName, "destination") ??
       (stop.placeId
         ? findById(entities, stop.placeId, "destination")
         : null) ??
-      acceptSuppliedFideId(stop.placeId, stop.placeName, "destination");
+      acceptSuppliedFideId(stop.placeId, stop.placeName, "destination") ??
+      findByName(entities, stop.placeName, "destination");
     if (place) {
       keptOldIndexes.push(index);
     }
@@ -393,13 +391,13 @@ export function bindItineraryToAllowlist(
       for (const block of day.blocks ?? []) {
         const kind = block.entityKind;
         const matched =
-          findByName(entities, block.entityName || block.title || "", kind) ??
           findById(entities, block.entityId, kind) ??
           acceptSuppliedFideId(
             block.entityId,
             block.entityName || block.title || "",
             kind
-          );
+          ) ??
+          findByName(entities, block.entityName || block.title || "", kind);
         if (!matched) {
           omitted.push(
             `day ${day.dayNumber} block "${block.entityName || block.title || block.entityId}"`

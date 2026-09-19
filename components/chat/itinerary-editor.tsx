@@ -16,6 +16,7 @@ import {
   serializeClientItinerary,
 } from "@/lib/itinerary/schema";
 import { verifyItineraryStage } from "@/lib/itinerary/stage-verifier";
+import { applyItineraryPatch } from "@/lib/itinerary/patch";
 import {
   STAGE_HELP,
   STAGE_LABELS,
@@ -23,6 +24,7 @@ import {
   ensureWorkflow,
   reopenStage,
   stageAdvancePrompt,
+  syncDaysToNights,
   type ItineraryStage,
 } from "@/lib/itinerary/stages";
 import {
@@ -326,7 +328,7 @@ function DayBlockCard({
         </div>
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">
-          No timed activities yet — approve stays, then ask Taylor to fill days.
+          No timed activities yet.
         </p>
       )}
     </div>
@@ -459,16 +461,21 @@ export function ItineraryEditor({
     );
   }
 
-  const itinerary = parsed.data;
+  const itinerary = {
+    ...parsed.data,
+    days: syncDaysToNights(parsed.data.stops, parsed.data.days),
+    durationDays: Math.max(
+      parsed.data.durationDays,
+      parsed.data.stops.reduce((sum, stop) => sum + stop.nights, 0)
+    ),
+  };
   const workflow = ensureWorkflow(itinerary);
   const stage = workflow.stage;
   const verify = verifyItineraryStage(itinerary, stage);
   const approveGate = verifyItineraryStage(itinerary, stage, { forApprove: true });
 
   const routeLocked = Boolean(workflow.approved.route) && stage !== "route";
-  const staysLocked = Boolean(workflow.approved.stays) && stage !== "stays";
   const daysEditable = editable && (stage === "days" || stage === "complete");
-  const staysEditable = editable && !staysLocked && stage !== "route";
   const routeEditable = editable && !routeLocked;
 
   const commit = (next: ClientItinerary) => {
@@ -502,12 +509,17 @@ export function ItineraryEditor({
     if (!routeEditable) {
       return;
     }
-    const stops = itinerary.stops.map((stop, index) =>
-      index === stopIndex
-        ? { ...stop, nights: Math.max(1, stop.nights + delta) }
-        : stop
-    );
-    commit({ ...itinerary, stops });
+    const nextNights = Math.max(1, itinerary.stops[stopIndex].nights + delta);
+    const result = applyItineraryPatch(itinerary, {
+      op: "setStopNights",
+      stopIndex,
+      nights: nextNights,
+    });
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    commit(result.itinerary);
   };
 
   const removeDay = (dayNumber: number) => {
@@ -541,9 +553,6 @@ export function ItineraryEditor({
       }),
     });
   };
-
-  const showHotels = stage === "stays" || stage === "days" || stage === "complete";
-  const showDays = stage === "days" || stage === "complete" || itinerary.days.some((d) => (d.blocks?.length ?? 0) > 0);
 
   return (
     <div className="relative flex h-full min-h-[28rem] w-full overflow-hidden">
@@ -638,7 +647,7 @@ export function ItineraryEditor({
                                       : undefined
                                   }
                                 />
-                                {showHotels && stop.hotelName ? (
+                                {stop.hotelName ? (
                                   <EntityPill
                                     entityId={stop.hotelId}
                                     label={stop.hotelName}
@@ -653,12 +662,11 @@ export function ItineraryEditor({
                                         : undefined
                                     }
                                   />
-                                ) : null}
-                                {showHotels && !stop.hotelName && staysEditable ? (
+                                ) : (
                                   <span className="text-[11px] text-muted-foreground">
                                     No hotel yet
                                   </span>
-                                ) : null}
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-background/70 px-1 py-0.5">
@@ -687,7 +695,7 @@ export function ItineraryEditor({
                             </div>
                           </div>
 
-                          {showDays && stopDays.length > 0 ? (
+                          {stopDays.length > 0 ? (
                             <div className="mt-3 space-y-2">
                               {stopDays.map((day) => (
                                 <DayBlockCard
@@ -702,12 +710,6 @@ export function ItineraryEditor({
                                 />
                               ))}
                             </div>
-                          ) : stage === "route" ? (
-                            <p className="mt-3 text-xs text-muted-foreground">
-                              Route stage — approve when overnight stops and
-                              transport cards look right. Hotels and day blocks
-                              come next.
-                            </p>
                           ) : null}
                         </section>
                       </div>

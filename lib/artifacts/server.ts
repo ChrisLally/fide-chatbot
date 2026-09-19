@@ -6,6 +6,7 @@ import { sheetDocumentHandler } from "@/artifacts/sheet/server";
 import { textDocumentHandler } from "@/artifacts/text/server";
 import type { ArtifactKind } from "@/components/chat/artifact";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
+import type { ProposeRoute } from "@/lib/itinerary/patch";
 import { saveDocument } from "../db/queries";
 import type { Document } from "../db/schema";
 import type { ChatMessage } from "../types";
@@ -26,6 +27,8 @@ export type CreateDocumentCallbackProps = {
   modelId: string;
   /** Turn-scoped allowlist from run_view — used to bind Fide ids. */
   entityBinder?: TurnEntityBinder;
+  /** When set, skip LLM and materialize a route-stage itinerary from this slice. */
+  route?: ProposeRoute;
 };
 
 export type UpdateDocumentCallbackProps = {
@@ -58,6 +61,7 @@ export function createDocumentHandler<T extends ArtifactKind>(config: {
         session: args.session,
         modelId: args.modelId,
         entityBinder: args.entityBinder,
+        route: args.route,
       });
 
       if (args.session?.user?.id) {

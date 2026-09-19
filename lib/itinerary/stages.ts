@@ -108,18 +108,47 @@ export function reopenStage(
 export function stubDaysForStops(
   stops: ClientItineraryStop[]
 ): ClientItineraryDay[] {
-  let dayNumber = 1;
+  return syncDaysToNights(stops, []);
+}
+
+/**
+ * One day card per overnight. Calendar dayNumber is 1…sum(nights).
+ * Keeps existing titles/blocks when the stop still has a slot for them.
+ */
+export function syncDaysToNights(
+  stops: ClientItineraryStop[],
+  existing: ClientItineraryDay[] = []
+): ClientItineraryDay[] {
   const days: ClientItineraryDay[] = [];
+  let dayNumber = 1;
+
   stops.forEach((stop, stopIndex) => {
-    days.push({
-      dayNumber,
-      stopIndex,
-      title: `Stay in ${stop.placeName}`,
-      description: "",
-      blocks: [],
-    });
-    dayNumber += 1;
+    const nights = Math.max(1, stop.nights);
+    const prior = existing
+      .filter((day) => day.stopIndex === stopIndex)
+      .sort((a, b) => a.dayNumber - b.dayNumber);
+    const withBlocks = prior.filter((day) => (day.blocks?.length ?? 0) > 0);
+    const empty = prior.filter((day) => (day.blocks?.length ?? 0) === 0);
+    const keep = [...withBlocks, ...empty].slice(0, nights);
+
+    for (let offset = 0; offset < nights; offset++) {
+      const source = keep[offset];
+      days.push({
+        dayNumber,
+        stopIndex,
+        title:
+          source?.title?.trim() ||
+          (offset === 0
+            ? `Stay in ${stop.placeName}`
+            : `${stop.placeName} · day ${offset + 1}`),
+        description: source?.description ?? "",
+        transitNote: source?.transitNote,
+        blocks: source?.blocks ?? [],
+      });
+      dayNumber += 1;
+    }
   });
+
   return days.length > 0
     ? days
     : [
@@ -154,10 +183,13 @@ export function projectToStage(
     }));
     const days =
       itinerary.days.length > 0
-        ? itinerary.days.map((day) => ({
-            ...day,
-            blocks: [] as ClientItineraryDay["blocks"],
-          }))
+        ? syncDaysToNights(
+            stops,
+            itinerary.days.map((day) => ({
+              ...day,
+              blocks: [] as ClientItineraryDay["blocks"],
+            }))
+          )
         : stubDaysForStops(stops);
     return withWorkflow(
       {
@@ -165,7 +197,10 @@ export function projectToStage(
         stops,
         days,
         transfers: itinerary.transfers ?? [],
-        durationDays: Math.max(itinerary.durationDays, days.length),
+        durationDays: Math.max(
+          itinerary.durationDays,
+          stops.reduce((sum, s) => sum + s.nights, 0)
+        ),
       },
       { stage: "route", approved: {} }
     );
@@ -250,13 +285,13 @@ export function mergeStageUpdate(
 
 export function stageAdvancePrompt(stage: ItineraryStage): string {
   if (stage === "stays") {
-    return `[Workflow] Route stage approved. Continue to **stays** only: run_view inventory/hotels-by-city for each overnight stop, then updateDocument with hotelName/hotelId on those stops. Do not change places, nights, or day blocks.`;
+    return `[Workflow] Route stage approved. Continue to **stays** only: run_view inventory/hotels-by-city for each overnight stop, then patchItinerary proposeStay / setStopHotel { stopIndex, hotelId }. Copy did:fide:0x… from the view. Do not send hotel titles as ids.`;
   }
   if (stage === "days") {
-    return `[Workflow] Stays approved. Continue to **days** only: run_view activities-by-city / attractions-by-city for each stop, then updateDocument with day cards and timed blocks. Do not change stops, nights, or hotels.`;
+    return `[Workflow] Stays approved. Continue to **days** only: run_view activities-by-city / attractions-by-city, then patchItinerary proposeDay { dayNumber, blocks: [{ when, entityId, entityKind }] } (dayNumber 1…sum of nights; max 2). Copy fide ids; never titles.`;
   }
   if (stage === "complete") {
-    return `[Workflow] Days approved — itinerary stages complete. Confirm briefly; only edit if I ask.`;
+    return `[Workflow] Days approved — itinerary stages complete. Confirm briefly; only patchItinerary if I ask.`;
   }
-  return `[Workflow] Focus on the **route** stage: overnight places + nights only.`;
+  return `[Workflow] Focus on the **route** stage: createDocument with route.stops (placeName + nights).`;
 }
