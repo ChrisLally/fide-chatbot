@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   approveCurrentStage,
+  calendarDayCount,
   ensureWorkflow,
   projectToStage,
   reopenStage,
+  syncDaysToNights,
 } from "./stages.ts";
 import { verifyItineraryStage } from "./stage-verifier.ts";
 import type { ClientItinerary } from "./schema.ts";
+import { upgradeToFideId } from "./schema.ts";
 
 const sample: ClientItinerary = {
   title: "Test",
@@ -119,12 +122,18 @@ describe("itinerary stages", () => {
       ...sample,
       stops: [
         {
-          placeId: "did:fide:0x4020000000000000000000000000000000000001",
+          placeId: upgradeToFideId(
+            "https://www.catalinaquest.ai/#place=cairns",
+            "destination"
+          ),
           placeName: "Cairns",
           nights: 4,
         },
         {
-          placeId: "did:fide:0x4020000000000000000000000000000000000002",
+          placeId: upgradeToFideId(
+            "https://www.catalinaquest.ai/#place=port-douglas",
+            "destination"
+          ),
           placeName: "Port Douglas",
           nights: 4,
         },
@@ -137,14 +146,32 @@ describe("itinerary stages", () => {
     );
   });
 
-  it("verifies LEI min nights", () => {
+  it("does not treat a Lady Elliot label as LEI without the place id", () => {
+    const fake: ClientItinerary = {
+      ...sample,
+      stops: [
+        {
+          placeId: upgradeToFideId(
+            "https://www.catalinaquest.ai/#place=sydney",
+            "destination"
+          ),
+          placeName: "Lady Elliot Island",
+          nights: 2,
+        },
+      ],
+    };
+    const result = verifyItineraryStage(fake, "route");
+    expect(result.errors.some((e) => /stay-min/i.test(e))).toBe(false);
+  });
+
+  it("verifies LEI min nights from the place id", () => {
     const short: ClientItinerary = {
       ...sample,
       stops: [{ ...sample.stops[1], nights: 2 }],
     };
     const result = verifyItineraryStage(short, "route");
     expect(result.ok).toBe(false);
-    expect(result.errors.some((e) => /Lady Elliot/i.test(e))).toBe(true);
+    expect(result.errors.some((e) => /stay-min/i.test(e))).toBe(true);
   });
 
   it("treats missing hotels as pending during stays, hard only on approve", () => {
@@ -163,5 +190,18 @@ describe("itinerary stages", () => {
     const gate = verifyItineraryStage(stays, "stays", { forApprove: true });
     expect(gate.ok).toBe(false);
     expect(gate.errors.some((e) => /Hotels still needed/i.test(e))).toBe(true);
+  });
+
+  it("adds a departure morning after the last night", () => {
+    const stops = [
+      { ...sample.stops[0], nights: 2, placeName: "Sydney" },
+      { ...sample.stops[1], nights: 2, placeName: "Melbourne" },
+    ];
+    const days = syncDaysToNights(stops, []);
+    expect(calendarDayCount(stops)).toBe(5);
+    expect(days).toHaveLength(5);
+    expect(days.map((d) => d.stopIndex)).toEqual([0, 0, 1, 1, 1]);
+    expect(days[4]?.title).toBe("Depart Melbourne");
+    expect(days[4]?.dayNumber).toBe(5);
   });
 });

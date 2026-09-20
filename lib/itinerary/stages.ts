@@ -25,7 +25,7 @@ export const STAGE_HELP: Record<ItineraryStage, string> = {
   stays:
     "Pick a hotel for each overnight stop. Approve when properties match the brief.",
   days:
-    "Day cards and activity blocks. Approve when pacing is client-ready.",
+    "One card per overnight plus a departure morning. Last day stays airport-light. Approve when pacing is client-ready.",
   complete: "All stages approved. Chat to tweak, or export later.",
 };
 
@@ -89,15 +89,31 @@ export function reopenStage(
   return withWorkflow(itinerary, { stage, approved });
 }
 
+export function overnightTotal(stops: ClientItineraryStop[]): number {
+  return Math.max(
+    1,
+    stops.reduce((sum, stop) => sum + Math.max(1, stop.nights), 0)
+  );
+}
+
+/** Nights plus the departure morning after the last stay. */
+export function calendarDayCount(stops: ClientItineraryStop[]): number {
+  return overnightTotal(stops) + 1;
+}
+
 export function stubDaysForStops(
   stops: ClientItineraryStop[]
 ): ClientItineraryDay[] {
   return syncDaysToNights(stops, []);
 }
 
+function isDepartureTitle(title: string): boolean {
+  return /^depart\b/i.test(title.trim()) || /\bdeparture\b/i.test(title.trim());
+}
+
 /**
- * One day card per overnight. Calendar dayNumber is 1…sum(nights).
- * Keeps existing titles/blocks when the stop still has a slot for them.
+ * One day card per overnight, plus a departure morning on the last stop.
+ * Calendar dayNumber is 1…sum(nights)+1.
  */
 export function syncDaysToNights(
   stops: ClientItineraryStop[],
@@ -108,23 +124,37 @@ export function syncDaysToNights(
 
   stops.forEach((stop, stopIndex) => {
     const nights = Math.max(1, stop.nights);
+    const isLast = stopIndex === stops.length - 1;
     const prior = existing
       .filter((day) => day.stopIndex === stopIndex)
       .sort((a, b) => a.dayNumber - b.dayNumber);
-    const withBlocks = prior.filter((day) => (day.blocks?.length ?? 0) > 0);
-    const empty = prior.filter((day) => (day.blocks?.length ?? 0) === 0);
-    const keep = [...withBlocks, ...empty].slice(0, nights);
+    const departPrior = isLast
+      ? prior.filter((day) => isDepartureTitle(day.title ?? ""))
+      : [];
+    const stayPrior = prior.filter((day) => !isDepartureTitle(day.title ?? ""));
+    const withBlocks = stayPrior.filter((day) => (day.blocks?.length ?? 0) > 0);
+    const empty = stayPrior.filter((day) => (day.blocks?.length ?? 0) === 0);
+    const keepStay = [...withBlocks, ...empty].slice(0, nights);
+    const slots = isLast ? nights + 1 : nights;
 
-    for (let offset = 0; offset < nights; offset++) {
-      const source = keep[offset];
+    for (let offset = 0; offset < slots; offset++) {
+      const isDeparture = isLast && offset === nights;
+      const source = isDeparture ? departPrior[0] : keepStay[offset];
+      const autoTitle = isDeparture
+        ? `Depart ${stop.placeName}`
+        : offset === 0
+          ? `Stay in ${stop.placeName}`
+          : `${stop.placeName} · day ${offset + 1}`;
+      const priorTitle = source?.title?.trim() ?? "";
+      const titleIsStub =
+        !priorTitle ||
+        /^stay in /i.test(priorTitle) ||
+        / · day \d+$/i.test(priorTitle) ||
+        isDepartureTitle(priorTitle);
       days.push({
         dayNumber,
         stopIndex,
-        title:
-          source?.title?.trim() ||
-          (offset === 0
-            ? `Stay in ${stop.placeName}`
-            : `${stop.placeName} · day ${offset + 1}`),
+        title: titleIsStub ? autoTitle : priorTitle,
         description: source?.description ?? "",
         transitNote: source?.transitNote,
         blocks: source?.blocks ?? [],
@@ -181,10 +211,7 @@ export function projectToStage(
         stops,
         days,
         transfers: itinerary.transfers ?? [],
-        durationDays: Math.max(
-          itinerary.durationDays,
-          stops.reduce((sum, s) => sum + s.nights, 0)
-        ),
+        durationDays: Math.max(itinerary.durationDays, calendarDayCount(stops)),
       },
       { stage: "route", approved: {} }
     );
@@ -267,15 +294,12 @@ export function mergeStageUpdate(
   );
 }
 
-export function stageAdvancePrompt(stage: ItineraryStage): string {
+export function stageAdvancePrompt(stage: ItineraryStage): string | null {
   if (stage === "stays") {
-    return `[Workflow] Route stage approved. Continue to **stays** only: run_view inventory/hotels-by-city for each overnight stop, then patchItinerary proposeStay / setStopHotel { stopIndex, hotelId }. Copy did:fide:0x… from the view. Do not send hotel titles as ids.`;
+    return "Route approved. Continue on stays from the brief and the overnight stops already on the canvas.";
   }
   if (stage === "days") {
-    return `[Workflow] Stays approved. Continue to **days** only: run_view activities-by-city / attractions-by-city, then patchItinerary proposeDay { dayNumber, blocks: [{ when, entityId, entityKind }] } (dayNumber 1…sum of nights; max 2). Copy fide ids; never titles.`;
+    return "Stays approved. Continue on days from the brief, the route, and realistic travel time. Keep departure mornings light.";
   }
-  if (stage === "complete") {
-    return `[Workflow] Days approved — itinerary stages complete. Confirm briefly; only patchItinerary if I ask.`;
-  }
-  return `[Workflow] Focus on the **route** stage: createDocument with route.stops (placeName + nights).`;
+  return null;
 }

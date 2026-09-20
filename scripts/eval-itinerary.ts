@@ -10,7 +10,6 @@ import { createMCPClient } from "@ai-sdk/mcp";
 import {
   generateText,
   stepCountIs,
-  streamText,
   tool,
   type ToolSet,
 } from "ai";
@@ -25,19 +24,20 @@ import {
 import { DEFAULT_CHAT_MODEL } from "../lib/ai/models";
 import {
   createTurnEntityBinder,
-  type TurnEntityBinder,
 } from "../lib/itinerary/entity-binder";
+import { wrapFideToolsWithBinder } from "../lib/fide/wrap-fide-tools";
 import {
-  clientItinerarySchema,
   fideIdHex,
-  hasUnresolvedEntityIds,
-  parseClientItinerary,
   serializeClientItinerary,
   shortEntityId,
-  stripJsonFences,
   type ClientItinerary,
 } from "../lib/itinerary/schema";
-import { wrapFideToolsWithBinder } from "../lib/fide/wrap-fide-tools";
+import {
+  applyItineraryPatch,
+  itineraryPatchSchema,
+  materializeRoute,
+  proposeRouteSchema,
+} from "../lib/itinerary/patch";
 
 config({ path: resolve(process.cwd(), ".env") });
 
@@ -46,8 +46,7 @@ const USER_PROMPT =
   "make an itinerary for 4 day trip in australia. you choose from and to where and such";
 
 const WORLD_MODEL = process.env.FIDE_WORLD_MODEL_KEY?.trim() || "catalina-world-model";
-const MAX_STEPS = 10;
-const MAX_ITINERARY_ATTEMPTS = 3;
+const MAX_STEPS = 16;
 
 type TraceEvent = {
   step: number;
@@ -103,75 +102,6 @@ function extractMcpText(result: unknown): string {
     )
     .join("")
     .trim();
-}
-
-async function generateItineraryJson(args: {
-  modelId: string;
-  title: string;
-  entityBinder: TurnEntityBinder;
-}): Promise<{ raw: string; parsed: ClientItinerary }> {
-  const bedrock = createAmazonBedrock({ region: process.env.AWS_REGION });
-  const model = bedrock(args.modelId);
-  let lastError = "unknown";
-  let lastDraft = "";
-
-  const allowlist = args.entityBinder.contextForPrompt();
-  const basePrompt = `Title: ${args.title}
-
-User request: ${USER_PROMPT}
-
-Use exact allowlisted names. You may omit placeId/entityId — server binds Fide ids.
-Never invent ids or names outside the allowlist.`;
-
-  for (let attempt = 1; attempt <= MAX_ITINERARY_ATTEMPTS; attempt++) {
-    const system =
-      attempt === 1
-        ? `${itineraryPrompt}\n\n${allowlist}\n\nOutput ONLY valid ClientItinerary JSON. Prefer names; omit ids if unsure.`
-        : `${itineraryPrompt}
-
-${allowlist}
-
-Previous attempt failed: ${lastError}
-Fix and output ONLY valid ClientItinerary JSON using exact allowlisted names.`;
-
-    let draft = "";
-    const { fullStream } = streamText({
-      model,
-      system,
-      prompt:
-        attempt === 1
-          ? basePrompt
-          : `${basePrompt}\n\nInvalid draft:\n${lastDraft.slice(0, 5000)}`,
-    });
-    for await (const delta of fullStream) {
-      if (delta.type === "text-delta") {
-        draft += delta.text;
-      }
-    }
-    lastDraft = stripJsonFences(draft);
-    const parsed = parseClientItinerary(lastDraft, { allowUnbound: true });
-    if (!parsed.ok) {
-      lastError = parsed.error;
-      continue;
-    }
-
-    const { itinerary, omitted } = args.entityBinder.bind(parsed.data);
-    if (itinerary.stops.length === 0 || hasUnresolvedEntityIds(itinerary)) {
-      lastError = `bind failed (omitted: ${omitted.join("; ") || "none"})`;
-      continue;
-    }
-    const strict = clientItinerarySchema.safeParse(itinerary);
-    if (!strict.success) {
-      lastError = strict.error.message;
-      continue;
-    }
-    return {
-      raw: serializeClientItinerary(strict.data),
-      parsed: strict.data,
-    };
-  }
-
-  throw new Error(`Itinerary validation failed: ${lastError}`);
 }
 
 function assertFideIds(itinerary: ClientItinerary): string[] {
@@ -307,60 +237,121 @@ async function main() {
 
   fideTools.createDocument = tool({
     description:
-      "Create a structured Catalina client itinerary artifact (JSON canvas). kind MUST be 'itinerary'. Call after run_view so the allowlist is populated.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass route.stops with placeId (did:fide:0x… from places-search) + nights only — no hotels, no activities. After create, STOP and wait for Approve Route.",
     inputSchema: z.object({
       title: z.string(),
       kind: z.literal("itinerary"),
+      route: proposeRouteSchema.optional(),
     }),
-    execute: async ({ title }) => {
+    execute: async ({ title, kind, route }) => {
       stepCounter += 1;
       const step = stepCounter;
-      console.log(
-        `✓ [${step}] createDocument title=${title} (allowlist=${entityBinder.list().length})`
-      );
-      try {
-        const { raw, parsed } = await generateItineraryJson({
-          modelId: DEFAULT_CHAT_MODEL,
-          title,
-          entityBinder,
-        });
-        captured = parsed;
-        capturedRaw = raw;
+      if (!route?.stops?.length) {
+        const message =
+          "createDocument requires route.stops [{ placeId, nights }]";
+        console.log(`✗ [${step}] createDocument ${message}`);
         trace.push({
           step,
           tool: "createDocument",
-          input: { title, kind: "itinerary" },
-          outputPreview: preview(raw, 280),
-          ok: true,
-        });
-        return {
-          id: "eval-itinerary",
-          title,
-          kind: "itinerary",
-          content: "Itinerary generated for eval.",
-        };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        trace.push({
-          step,
-          tool: "createDocument",
-          input: { title, kind: "itinerary" },
+          input: { title, kind },
           outputPreview: message,
           ok: false,
         });
-        return {
-          error: message,
-          hint: "run_view for places/hotels/activities, then createDocument again with exact names.",
-        };
+        return { error: message };
       }
+      const result = materializeRoute(title, route, entityBinder);
+      if (!result.ok) {
+        console.log(`✗ [${step}] createDocument ${result.error}`);
+        trace.push({
+          step,
+          tool: "createDocument",
+          input: { title, kind, route },
+          outputPreview: result.error,
+          ok: false,
+        });
+        return { error: result.error };
+      }
+      captured = result.itinerary;
+      capturedRaw = serializeClientItinerary(result.itinerary);
+      console.log(
+        `✓ [${step}] createDocument title=${title} stops=${result.itinerary.stops.length} days=${result.itinerary.days.length}`
+      );
+      trace.push({
+        step,
+        tool: "createDocument",
+        input: { title, kind, route },
+        outputPreview: preview(capturedRaw, 280),
+        ok: true,
+      });
+      return {
+        id: "eval-itinerary",
+        title,
+        kind,
+        stage: "route",
+        content:
+          "Route itinerary is visible. STOP. Wait for Approve Route. Do not createDocument again. Do not patchItinerary hotels or days until that approve.",
+      };
+    },
+  });
+
+  fideTools.patchItinerary = tool({
+    description:
+      "Apply one typed patch to the existing itinerary. Hotels only after Approve Route. Day blocks only after Approve Stays.",
+    inputSchema: z.object({
+      id: z.string(),
+      patch: itineraryPatchSchema,
+    }),
+    execute: async ({ id, patch }) => {
+      stepCounter += 1;
+      const step = stepCounter;
+      if (!captured) {
+        const message = "No itinerary yet — createDocument first.";
+        console.log(`✗ [${step}] patchItinerary ${message}`);
+        trace.push({
+          step,
+          tool: "patchItinerary",
+          input: { id, patch },
+          outputPreview: message,
+          ok: false,
+        });
+        return { error: message };
+      }
+      const result = applyItineraryPatch(captured, patch, entityBinder);
+      if (!result.ok) {
+        console.log(`✗ [${step}] patchItinerary ${result.error}`);
+        trace.push({
+          step,
+          tool: "patchItinerary",
+          input: { id, patch },
+          outputPreview: result.error,
+          ok: false,
+        });
+        return { error: result.error };
+      }
+      captured = result.itinerary;
+      capturedRaw = serializeClientItinerary(result.itinerary);
+      console.log(`✓ [${step}] patchItinerary ${patch.op}`);
+      trace.push({
+        step,
+        tool: "patchItinerary",
+        input: { id, patch },
+        outputPreview: preview({ op: patch.op }, 160),
+        ok: true,
+      });
+      return {
+        id,
+        op: patch.op,
+        content: `Itinerary patched (${patch.op}).`,
+      };
     },
   });
 
   const system = [
     regularPrompt,
     artifactsPrompt,
+    itineraryPrompt,
     worldModelPrompt,
-    `Prefer world model key \`${WORLD_MODEL}\`. Use run_view before createDocument so the server can bind names → fide_id.`,
+    `Prefer world model key \`${WORLD_MODEL}\`.`,
   ].join("\n\n");
 
   try {

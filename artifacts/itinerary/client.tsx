@@ -8,19 +8,22 @@ import {
 } from "@/components/chat/icons";
 import { ItineraryEditor } from "@/components/chat/itinerary-editor";
 import { alisonGoldenItinerary } from "@/lib/itinerary/alison-golden";
+import type { JevScores } from "@/lib/itinerary/jev-types";
 import {
   parseClientItinerary,
   serializeClientItinerary,
 } from "@/lib/itinerary/schema";
 
-type Metadata = Record<string, never>;
+type Metadata = {
+  jev?: JevScores | null;
+};
 
 export const itineraryArtifact = new Artifact<"itinerary", Metadata>({
   kind: "itinerary",
   description:
     "Structured client itinerary with overnight stops, days, and entity-backed activities.",
   initialize: () => null,
-  onStreamPart: ({ setArtifact, streamPart }) => {
+  onStreamPart: ({ setArtifact, setMetadata, streamPart }) => {
     if (streamPart.type === "data-itineraryDelta") {
       setArtifact((draftArtifact) => ({
         ...draftArtifact,
@@ -29,13 +32,28 @@ export const itineraryArtifact = new Artifact<"itinerary", Metadata>({
         status: "streaming",
       }));
     }
+    if (streamPart.type === "data-jevScores") {
+      setMetadata((current) => ({
+        ...(current ?? {}),
+        jev: streamPart.data,
+      }));
+    }
   },
-  content: ({ content, onSaveContent, status, isCurrentVersion }) => {
+  content: ({
+    content,
+    onSaveContent,
+    status,
+    isCurrentVersion,
+    sendMessage,
+    metadata,
+  }) => {
     return (
       <ItineraryEditor
         content={content}
         isCurrentVersion={isCurrentVersion}
+        jev={metadata?.jev}
         onSaveContent={onSaveContent}
+        sendMessage={sendMessage}
         status={status}
       />
     );

@@ -7,6 +7,7 @@ import type { patchItinerary } from "./ai/tools/patch-itinerary";
 import type { requestSuggestions } from "./ai/tools/request-suggestions";
 import type { updateDocument } from "./ai/tools/update-document";
 import type { Suggestion } from "./db/schema";
+import type { JevScores } from "./itinerary/jev-types";
 
 export const messageMetadataSchema = z.object({
   createdAt: z.string(),
@@ -36,6 +37,7 @@ export type CustomUIDataTypes = {
   sheetDelta: string;
   codeDelta: string;
   itineraryDelta: string;
+  jevScores: JevScores;
   suggestion: Suggestion;
   appendMessage: string;
   id: string;

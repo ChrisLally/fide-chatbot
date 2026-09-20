@@ -2,16 +2,20 @@ import { z } from "zod";
 import type { TurnEntityBinder } from "./entity-binder";
 import {
   clientItinerarySchema,
+  fideIdEntityType,
   fideIdHex,
   type ClientItinerary,
   type ClientItineraryDay,
   type ClientItineraryStop,
   type DayBlock,
   type ItineraryTransfer,
+  type PeekEntityKind,
 } from "./schema";
 import { verifyItineraryStage } from "./stage-verifier";
 import {
+  calendarDayCount,
   ensureWorkflow,
+  overnightTotal,
   stubDaysForStops,
   syncDaysToNights,
   withWorkflow,
@@ -85,14 +89,14 @@ export const itineraryPatchSchema = z.discriminatedUnion("op", [
     dayNumber: z.number().int().min(1),
     title: z.string().optional(),
     description: z.string().optional(),
-    blocks: z.array(blockProposeSchema).max(2),
+    blocks: z.array(blockProposeSchema).max(4),
   }),
   z.object({
     op: z.literal("proposeDay"),
     dayNumber: z.number().int().min(1),
     title: z.string().optional(),
     description: z.string().optional(),
-    blocks: z.array(blockProposeSchema).max(2),
+    blocks: z.array(blockProposeSchema).max(4),
   }),
   z.object({
     op: z.literal("setTransit"),
@@ -148,11 +152,34 @@ export const proposeRouteSchema = z.object({
 
 export type ProposeRoute = z.infer<typeof proposeRouteSchema>;
 
-function nightsSum(stops: ClientItineraryStop[]): number {
-  return Math.max(
-    1,
-    stops.reduce((sum, stop) => sum + Math.max(1, stop.nights), 0)
+function asDid(id: string): string {
+  const hex = fideIdHex(id);
+  return hex ? `did:fide:${hex}` : id.trim();
+}
+
+function fideKindOk(id: string, kind: PeekEntityKind): boolean {
+  const type = fideIdEntityType(id);
+  if (kind === "hotel") return type === "11";
+  if (kind === "destination") return type === "40";
+  if (kind === "activity" || kind === "attraction") return type === "31";
+  return false;
+}
+
+function labelFromBinder(
+  binder: TurnEntityBinder | undefined,
+  id: string,
+  kind: PeekEntityKind,
+  fallback: string
+): string {
+  const hex = fideIdHex(id);
+  const hit = binder?.list().find(
+    (entity) => entity.kind === kind && fideIdHex(entity.fideId) === hex
   );
+  return hit?.name?.trim() || fallback.trim() || "Untitled";
+}
+
+function nightsSum(stops: ClientItineraryStop[]): number {
+  return calendarDayCount(stops);
 }
 
 function remapTransfers(
@@ -178,15 +205,44 @@ function remapTransfers(
   return next;
 }
 
-function pendingBlock(block: z.infer<typeof blockProposeSchema>): DayBlock {
-  const name = block.entityName?.trim() || block.title?.trim() || "Entity";
+function pendingBlock(
+  block: z.infer<typeof blockProposeSchema>,
+  binder?: TurnEntityBinder
+): DayBlock {
+  const entityId = asDid(block.entityId);
+  const name = labelFromBinder(
+    binder,
+    entityId,
+    block.entityKind,
+    block.entityName || block.title || "Entity"
+  );
   return {
     when: block.when,
     title: block.title,
     note: block.note,
-    entityId: block.entityId,
+    entityId,
     entityName: name,
     entityKind: block.entityKind,
+  };
+}
+
+function parseKeep(itinerary: ClientItinerary, omitted: string[] = []): PatchResult {
+  const parsed = clientItinerarySchema.safeParse({
+    ...itinerary,
+    durationDays: nightsSum(itinerary.stops),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.message, omitted };
+  }
+  return { ok: true, itinerary: parsed.data, omitted };
+}
+
+function kindFail(id: string, kind: PeekEntityKind): PatchResult | null {
+  if (fideKindOk(id, kind)) return null;
+  const got = fideIdEntityType(id) ?? "unknown";
+  return {
+    ok: false,
+    error: `${kind} id must be a typed Fide id (hotel=0x11, place=0x40, activity=0x31). Got type ${got} for ${id}.`,
   };
 }
 
@@ -229,6 +285,29 @@ function bindAndKeep(
   return { ok: true, itinerary: parsed.data, omitted };
 }
 
+function stageBlocksOp(
+  stage: ReturnType<typeof ensureWorkflow>["stage"],
+  op: string
+): PatchResult | null {
+  const hotelOps = op === "setStopHotel" || op === "proposeStay";
+  const dayOps = op === "setDayBlocks" || op === "proposeDay";
+  if (stage === "route" && (hotelOps || dayOps)) {
+    return {
+      ok: false,
+      error:
+        "Route is not approved yet. Stop. Do not add hotels or day activities, and do not call createDocument again. Wait for the human to click Approve Route.",
+    };
+  }
+  if (stage === "stays" && dayOps) {
+    return {
+      ok: false,
+      error:
+        "Stays are not approved yet. Only set hotels (setStopHotel). Wait for Approve Stays before day activities.",
+    };
+  }
+  return null;
+}
+
 function verifyHard(itinerary: ClientItinerary): PatchResult | null {
   const stage = ensureWorkflow(itinerary).stage;
   const verified = verifyItineraryStage(itinerary, stage);
@@ -236,9 +315,8 @@ function verifyHard(itinerary: ClientItinerary): PatchResult | null {
     (error) =>
       /Cairns and Port Douglas/i.test(error) ||
       /Townsville|Magnetic/i.test(error) ||
-      /Lady Elliot Island needs/i.test(error) ||
-      /exceeds 3\.5h/i.test(error) ||
-      /endurance drive/i.test(error)
+      /stay-min/i.test(error) ||
+      /exceeds 3\.5h/i.test(error)
   );
   if (blockers.length > 0) {
     return { ok: false, error: blockers.join("; ") };
@@ -257,6 +335,9 @@ export function applyItineraryPatch(
   itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
   itinerary.durationDays = nightsSum(itinerary.stops);
 
+  const blocked = stageBlocksOp(workflow.stage, patch.op);
+  if (blocked) return blocked;
+
   const failIndex = (index: number, noun: string): PatchResult | null => {
     if (index < 0 || index >= itinerary.stops.length) {
       return { ok: false, error: `${noun} ${index} is out of range (${itinerary.stops.length} stops).` };
@@ -269,21 +350,20 @@ export function applyItineraryPatch(
     case "proposeStay": {
       const bad = failIndex(patch.stopIndex, "stopIndex");
       if (bad) return bad;
+      const kindBad = kindFail(patch.hotelId, "hotel");
+      if (kindBad) return kindBad;
+      const hotelId = asDid(patch.hotelId);
       itinerary.stops[patch.stopIndex] = {
         ...itinerary.stops[patch.stopIndex],
-        hotelId: patch.hotelId,
-        hotelName: patch.hotelName?.trim() || itinerary.stops[patch.stopIndex].hotelName || "Hotel",
+        hotelId,
+        hotelName: labelFromBinder(
+          binder,
+          hotelId,
+          "hotel",
+          patch.hotelName || itinerary.stops[patch.stopIndex].hotelName || "Hotel"
+        ),
       };
-      const bound = bindAndKeep(itinerary, binder, `hotel on stop ${patch.stopIndex + 1}`);
-      if (!bound.ok) return bound;
-      if (!bound.itinerary.stops[patch.stopIndex]?.hotelId) {
-        return {
-          ok: false,
-          error: `Hotel id ${patch.hotelId} did not bind. Copy did:fide:0x… from run_view inventory/hotels-by-city.`,
-          omitted: bound.omitted,
-        };
-      }
-      return bound;
+      return parseKeep(itinerary);
     }
     case "setStopNights": {
       const bad = failIndex(patch.stopIndex, "stopIndex");
@@ -318,9 +398,19 @@ export function applyItineraryPatch(
         (index) => (index >= insertAt ? index + 1 : index)
       );
       itinerary.durationDays = nightsSum(itinerary.stops);
-      const bound = bindAndKeep(itinerary, binder, `stop ${insertAt + 1}`);
-      if (!bound.ok) return bound;
-      return verifyHard(bound.itinerary) ?? bound;
+      const kindBad = kindFail(patch.placeId, "destination");
+      if (kindBad) return kindBad;
+      itinerary.stops[insertAt] = {
+        ...itinerary.stops[insertAt],
+        placeId: asDid(patch.placeId),
+        placeName: labelFromBinder(
+          binder,
+          asDid(patch.placeId),
+          "destination",
+          patch.placeName || "Place"
+        ),
+      };
+      return verifyHard(itinerary) ?? parseKeep(itinerary);
     }
     case "removeStop": {
       const bad = failIndex(patch.stopIndex, "stopIndex");
@@ -355,18 +445,23 @@ export function applyItineraryPatch(
     case "replaceStopPlace": {
       const bad = failIndex(patch.stopIndex, "stopIndex");
       if (bad) return bad;
+      const kindBad = kindFail(patch.placeId, "destination");
+      if (kindBad) return kindBad;
+      const placeId = asDid(patch.placeId);
       itinerary.stops[patch.stopIndex] = {
-        placeId: patch.placeId,
-        placeName: patch.placeName?.trim() || itinerary.stops[patch.stopIndex].placeName,
+        placeId,
+        placeName: labelFromBinder(
+          binder,
+          placeId,
+          "destination",
+          patch.placeName || itinerary.stops[patch.stopIndex].placeName
+        ),
         nights: itinerary.stops[patch.stopIndex].nights,
+        hotelId: undefined,
+        hotelName: undefined,
       };
-      const bound = bindAndKeep(
-        itinerary,
-        binder,
-        `stop ${patch.stopIndex + 1}`
-      );
-      if (!bound.ok) return bound;
-      return verifyHard(bound.itinerary) ?? bound;
+      itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
+      return verifyHard(itinerary) ?? parseKeep(itinerary);
     }
     case "setDayBlocks":
     case "proposeDay": {
@@ -374,29 +469,23 @@ export function applyItineraryPatch(
       if (!day) {
         return {
           ok: false,
-          error: `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (one card per night).`,
+          error: `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (${itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)} nights + departure morning).`,
         };
+      }
+      for (const block of patch.blocks) {
+        const kindBad = kindFail(block.entityId, block.entityKind);
+        if (kindBad) return kindBad;
       }
       const nextDay: ClientItineraryDay = {
         ...day,
         title: patch.title?.trim() || day.title,
         description: patch.description ?? day.description,
-        blocks: patch.blocks.map(pendingBlock),
+        blocks: patch.blocks.map((block) => pendingBlock(block, binder)),
       };
       itinerary.days = itinerary.days.map((row) =>
         row.dayNumber === patch.dayNumber ? nextDay : row
       );
-      const bound = bindAndKeep(itinerary, binder, `day ${patch.dayNumber} block`);
-      if (!bound.ok) return bound;
-      const boundDay = bound.itinerary.days.find((row) => row.dayNumber === patch.dayNumber);
-      if ((boundDay?.blocks?.length ?? 0) < patch.blocks.length) {
-        return {
-          ok: false,
-          error: `One or more day ${patch.dayNumber} entities did not bind. Pass entityId (did:fide:0x…) from run_view, not a title.`,
-          omitted: bound.omitted,
-        };
-      }
-      return bound;
+      return parseKeep(itinerary);
     }
     case "setTransit": {
       const transfers = [...(itinerary.transfers ?? [])];
@@ -429,7 +518,7 @@ export function applyItineraryPatch(
       if (!day) {
         return {
           ok: false,
-          error: `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (one card per night).`,
+          error: `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (${itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)} nights + departure morning).`,
         };
       }
       itinerary.days = itinerary.days.map((row) =>
@@ -462,21 +551,24 @@ export function materializeRoute(
   draft: ProposeRoute,
   binder?: TurnEntityBinder
 ): PatchResult {
-  const pending: ClientItinerary = {
-    title: draft.title?.trim() || title,
-    summary: draft.summary ?? "",
-    durationDays: draft.durationDays ?? nightsSum(
-      draft.stops.map((stop) => ({
-        placeId: stop.placeId,
-        placeName: stop.placeName?.trim() || "Place",
-        nights: stop.nights,
-      }))
-    ),
-    stops: draft.stops.map((stop) => ({
+  const fitted = fitStopsToTripLength(
+    draft.stops.map((stop) => ({
       placeId: stop.placeId,
       placeName: stop.placeName?.trim() || "Place",
       nights: stop.nights,
     })),
+    claimedTripDays(title, draft)
+  );
+  if (!fitted.ok) {
+    return { ok: false, error: fitted.error };
+  }
+  const stops = fitted.stops;
+
+  const pending: ClientItinerary = {
+    title: draft.title?.trim() || title,
+    summary: draft.summary ?? "",
+    durationDays: calendarDayCount(stops),
+    stops,
     days: [],
     transfers: draft.transfers ?? [],
     workflow: { stage: "route", approved: {} },
@@ -487,7 +579,7 @@ export function materializeRoute(
   const next = withWorkflow(
     {
       ...bound.itinerary,
-      durationDays: nightsSum(bound.itinerary.stops),
+      durationDays: calendarDayCount(bound.itinerary.stops),
       days:
         bound.itinerary.days.length > 0
           ? bound.itinerary.days
@@ -496,6 +588,87 @@ export function materializeRoute(
     { stage: "route", approved: {} }
   );
   return verifyHard(next) ?? { ok: true, itinerary: next, omitted: bound.omitted };
+}
+
+/** N-day trip → N−1 hotel nights so the last calendar card is departure morning. */
+export function fitStopsToTripLength(
+  stops: ClientItineraryStop[],
+  claimedDays: number | null
+): { ok: true; stops: ClientItineraryStop[] } | { ok: false; error: string } {
+  const next = stops.map((stop) => ({ ...stop }));
+  if (claimedDays == null) {
+    return { ok: true, stops: next };
+  }
+
+  const nights = overnightTotal(next);
+  const targetNights = Math.max(1, claimedDays - 1);
+  const delta = targetNights - nights;
+  const maxAutofit = 4;
+
+  if (delta === 0) {
+    return { ok: true, stops: next };
+  }
+
+  if (delta > 0 && delta <= maxAutofit) {
+    addNightsFromEnd(next, delta);
+    return { ok: true, stops: next };
+  }
+
+  if (delta < 0 && delta >= -maxAutofit) {
+    const removed = removeNightsFromEnd(next, -delta);
+    if (removed === -delta) {
+      return { ok: true, stops: next };
+    }
+  }
+
+  if (nights < targetNights) {
+    return {
+      ok: false,
+      error: `This is a ${claimedDays}-day brief. Allocate ${targetNights} overnight nights across real stops now (you passed ${nights}). Do not add a filler city and do not ask which destination should soak the rest.`,
+    };
+  }
+
+  return {
+    ok: false,
+    error: `This is a ${claimedDays}-day brief (${targetNights} nights + departure morning). You passed ${nights} nights — trim a stop rather than stretching the calendar.`,
+  };
+}
+
+function addNightsFromEnd(stops: ClientItineraryStop[], extra: number): void {
+  let index = stops.length - 1;
+  let guard = 0;
+  while (extra > 0 && guard < 80) {
+    if (stops[index].nights < 6) {
+      stops[index].nights += 1;
+      extra -= 1;
+    }
+    index = (index - 1 + stops.length) % stops.length;
+    guard += 1;
+  }
+}
+
+function removeNightsFromEnd(stops: ClientItineraryStop[], remove: number): number {
+  let index = stops.length - 1;
+  let removed = 0;
+  let guard = 0;
+  while (removed < remove && guard < 80) {
+    if (stops[index].nights > 1) {
+      stops[index].nights -= 1;
+      removed += 1;
+    }
+    index = (index - 1 + stops.length) % stops.length;
+    guard += 1;
+  }
+  return removed;
+}
+
+function claimedTripDays(title: string, draft: ProposeRoute): number | null {
+  const text = `${title} ${draft.title ?? ""} ${draft.summary ?? ""}`;
+  const named = text.match(/\b(\d{1,2})\s*[-–]?\s*days?\b/i);
+  if (named) {
+    return Number(named[1]);
+  }
+  return draft.durationDays ?? null;
 }
 
 export function patchNeedsAllowlist(_patch: ItineraryPatch): boolean {

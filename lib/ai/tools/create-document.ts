@@ -25,7 +25,7 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create a Catalina itinerary artifact (kind: itinerary). Pass route.stops with placeId (did:fide:0x… from places-search) + nights. After create, patchItinerary with hotelId / entityId — never titles.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass route.stops covering the full requested trip length (placeId + nights). No hotels, no activities, no leftover TBD nights. After create, STOP and wait for Approve Route.",
     inputSchema: z.object({
       title: z.string().describe("The title of the itinerary"),
       kind: z
@@ -89,7 +89,7 @@ export const createDocument = ({
         dataStream.write({ type: "data-finish", data: null, transient: true });
         return {
           error: message,
-          hint: "Call run_view on places/hotels/activities first, then createDocument again using exact inventory names (server binds Fide ids).",
+          hint: "run_view inventory/places-search, then retry createDocument with route.stops placeId + nights. Do not open a second itinerary. Do not add hotels yet.",
         };
       }
 
@@ -99,8 +99,9 @@ export const createDocument = ({
         id,
         title,
         kind,
+        stage: "route",
         content:
-          "A structured itinerary was generated, saved, and is now visible. Use patchItinerary for hotels, days, nights, and edits.",
+          "Route itinerary is visible. STOP. Wait for the human to click Approve Route. Do not createDocument again. Do not patchItinerary hotels or days until that approve.",
       };
     },
   });

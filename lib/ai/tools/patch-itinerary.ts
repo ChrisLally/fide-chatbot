@@ -8,22 +8,25 @@ import {
 } from "@/lib/itinerary/patch";
 import { parseClientItinerary, serializeClientItinerary } from "@/lib/itinerary/schema";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
+import { itineraryWithRankings, publishJevScores } from "@/lib/itinerary/jev";
 import type { ChatMessage } from "@/lib/types";
 
 type PatchItineraryProps = {
   session: Session;
   dataStream: UIMessageStreamWriter<ChatMessage>;
   entityBinder?: TurnEntityBinder;
+  lastUserText?: string;
 };
 
 export const patchItinerary = ({
   session,
   dataStream,
   entityBinder,
+  lastUserText = "",
 }: PatchItineraryProps) =>
   tool({
     description:
-      "Apply a typed patch to an existing itinerary. Pass Fide ids (did:fide:0x…) from run_view for hotels, places, and day blocks — not titles. One op per call.",
+      "Apply one typed patch to the existing itinerary. Hotels only after Approve Route (stage stays). Day blocks only after Approve Stays (stage days). Pass did:fide:0x… ids, not titles. Never call this to finish the whole trip in one turn.",
     inputSchema: z.object({
       id: z.string().describe("The itinerary artifact id"),
       patch: itineraryPatchSchema,
@@ -56,7 +59,15 @@ export const patchItinerary = ({
         };
       }
 
-      const content = serializeClientItinerary(result.itinerary);
+      const scores = await publishJevScores(
+        dataStream,
+        result.itinerary,
+        lastUserText
+      );
+      const next = scores
+        ? itineraryWithRankings(result.itinerary, scores)
+        : result.itinerary;
+      const content = serializeClientItinerary(next);
       await saveDocument({
         id: document.id,
         title: result.itinerary.title || document.title,
@@ -83,6 +94,14 @@ export const patchItinerary = ({
         kind: "itinerary" as const,
         op: patch.op,
         omitted: result.omitted,
+        stop:
+          patch.op === "setStopHotel" || patch.op === "proposeStay"
+            ? {
+                stopIndex: patch.stopIndex,
+                hotelId: result.itinerary.stops[patch.stopIndex]?.hotelId,
+                hotelName: result.itinerary.stops[patch.stopIndex]?.hotelName,
+              }
+            : undefined,
         content: `Itinerary patched (${patch.op}). Do not resend the full JSON.`,
       };
     },

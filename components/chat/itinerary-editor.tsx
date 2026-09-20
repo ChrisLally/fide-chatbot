@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { UseChatHelpers } from "@ai-sdk/react";
 import { CheckIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,8 +21,10 @@ import {
   STAGE_HELP,
   STAGE_LABELS,
   approveCurrentStage,
+  calendarDayCount,
   ensureWorkflow,
   reopenStage,
+  stageAdvancePrompt,
   syncDaysToNights,
   type ItineraryStage,
 } from "@/lib/itinerary/stages";
@@ -30,7 +33,10 @@ import {
   transferSlots,
   type TransferSlot,
 } from "@/lib/itinerary/transfers";
+import type { ChatMessage } from "@/lib/types";
+import { parseJevScores, type JevScores } from "@/lib/itinerary/jev-types";
 import { DocumentSkeleton } from "@/components/chat/document-skeleton";
+import { JevScoresButton } from "@/components/chat/jev-scores-dialog";
 import {
   ItineraryEntityPeek,
   type PeekTarget,
@@ -338,6 +344,7 @@ function StageRail({
   verifyErrors = [],
   verifyWarnings = [],
   canApprove = true,
+  jev,
   onApprove,
   onReopen,
 }: {
@@ -346,6 +353,7 @@ function StageRail({
   verifyErrors?: string[];
   verifyWarnings?: string[];
   canApprove?: boolean;
+  jev?: JevScores | null;
   onApprove: () => void;
   onReopen: (stage: "route" | "stays" | "days") => void;
 }) {
@@ -386,6 +394,7 @@ function StageRail({
           <StatusBadge label="Complete" tone="success" />
         ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <JevScoresButton scores={jev} />
           {stage !== "complete" && editable ? (
             <button
               className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background disabled:opacity-40"
@@ -425,11 +434,15 @@ export function ItineraryEditor({
   status,
   isCurrentVersion,
   onSaveContent,
+  sendMessage,
+  jev,
 }: {
   content: string;
   status: "streaming" | "idle";
   isCurrentVersion: boolean;
   onSaveContent: (updatedContent: string, debounce: boolean) => void;
+  sendMessage?: UseChatHelpers<ChatMessage>["sendMessage"];
+  jev?: JevScores | null;
 }) {
   const [peek, setPeek] = useState<PeekTarget | null>(null);
   const parsed = parseClientItinerary(content);
@@ -461,7 +474,7 @@ export function ItineraryEditor({
     days: syncDaysToNights(parsed.data.stops, parsed.data.days),
     durationDays: Math.max(
       parsed.data.durationDays,
-      parsed.data.stops.reduce((sum, stop) => sum + stop.nights, 0)
+      calendarDayCount(parsed.data.stops)
     ),
   };
   const workflow = ensureWorkflow(itinerary);
@@ -485,6 +498,13 @@ export function ItineraryEditor({
     const next = approveCurrentStage(itinerary);
     onSaveContent(serializeClientItinerary(next), false);
     toast.success(`${STAGE_LABELS[stage]} approved`);
+    const followUp = stageAdvancePrompt(ensureWorkflow(next).stage);
+    if (followUp && sendMessage) {
+      void sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: followUp }],
+      });
+    }
   };
 
   const handleReopen = (target: "route" | "stays" | "days") => {
@@ -549,6 +569,7 @@ export function ItineraryEditor({
           <StageRail
             canApprove={approveGate.ok}
             editable={editable}
+            jev={jev ?? parseJevScores(itinerary.rankings)}
             onApprove={handleApprove}
             onReopen={handleReopen}
             stage={stage}
@@ -635,17 +656,17 @@ export function ItineraryEditor({
                                       : undefined
                                   }
                                 />
-                                {stop.hotelName ? (
+                                {stop.hotelId || stop.hotelName ? (
                                   <EntityPill
                                     entityId={stop.hotelId}
-                                    label={stop.hotelName}
+                                    label={stop.hotelName || "Hotel"}
                                     onOpen={
                                       stop.hotelId
                                         ? () =>
                                             setPeek({
                                               kind: "hotel",
                                               id: stop.hotelId!,
-                                              label: stop.hotelName,
+                                              label: stop.hotelName || "Hotel",
                                             })
                                         : undefined
                                     }

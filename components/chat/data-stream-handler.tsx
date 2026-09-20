@@ -22,14 +22,21 @@ export function DataStreamHandler() {
     const newDeltas = dataStream.slice();
     setDataStream([]);
 
+    let streamKind = artifact.kind;
+
     for (const delta of newDeltas) {
       if (delta.type === "data-chat-title") {
         mutate(unstable_serialize(getChatHistoryPaginationKey));
         continue;
       }
+
+      if (delta.type === "data-kind") {
+        streamKind = delta.data;
+      }
+
       const artifactDefinition = artifactDefinitions.find(
         (currentArtifactDefinition) =>
-          currentArtifactDefinition.kind === artifact.kind
+          currentArtifactDefinition.kind === streamKind
       );
 
       if (artifactDefinition?.onStreamPart) {
@@ -51,6 +58,7 @@ export function DataStreamHandler() {
               ...draftArtifact,
               documentId: delta.data,
               status: "streaming",
+              isVisible: true,
             };
 
           case "data-title":
@@ -58,6 +66,7 @@ export function DataStreamHandler() {
               ...draftArtifact,
               title: delta.data,
               status: "streaming",
+              isVisible: true,
             };
 
           case "data-kind":
@@ -65,6 +74,7 @@ export function DataStreamHandler() {
               ...draftArtifact,
               kind: delta.data,
               status: "streaming",
+              isVisible: true,
             };
 
           case "data-clear":

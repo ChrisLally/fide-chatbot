@@ -393,15 +393,7 @@ const PurePreviewMessage = ({
         );
       }
 
-      return (
-        <div className="relative" key={toolCallId}>
-          <DocumentPreview
-            args={{ ...part.output, isUpdate: true }}
-            isReadonly={isReadonly}
-            result={part.output}
-          />
-        </div>
-      );
+      return null;
     }
 
     if (type === "tool-requestSuggestions") {

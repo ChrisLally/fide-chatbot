@@ -238,6 +238,69 @@ export function upgradeToFideId(
   return `${FIDE_DID_PREFIX}0x${typeCode}20${fideFingerprint(iri)}`;
 }
 
+const CATALINA_PLACE_PREFIX = `${CATALINA_IRI_PREFIX}place=`;
+
+/** Identity is the Catalina place IRI / Fide fingerprint — never the display label. */
+export function matchesCatalinaPlaceSlug(
+  placeId: string | undefined,
+  slug: string
+): boolean {
+  if (!placeId?.trim()) {
+    return false;
+  }
+  const needle = slug.trim().toLowerCase();
+  const iri = coerceGraphEntityId(placeId, "destination");
+  if (iri.toLowerCase() === `${CATALINA_PLACE_PREFIX}${needle}`) {
+    return true;
+  }
+  const hex = fideIdHex(placeId);
+  const expected = fideIdHex(
+    upgradeToFideId(`${CATALINA_PLACE_PREFIX}${needle}`, "destination")
+  );
+  if (!hex || !expected) {
+    return false;
+  }
+  return hex.slice(-36).toLowerCase() === expected.slice(-36).toLowerCase();
+}
+
+/**
+ * Stay nights from graph city-stay statements, keyed by place slug.
+ * min is a hard verifier floor; rec/max are ranking hints for Jev.
+ */
+export const GRAPH_STAY_BAND_BY_PLACE_SLUG: Record<
+  string,
+  { min?: number; rec?: number; max?: number }
+> = {
+  "lady-elliot-island": { min: 3, rec: 3, max: 5 },
+};
+
+export const GRAPH_STAY_MIN_NIGHTS_BY_PLACE_SLUG: Record<string, number> =
+  Object.fromEntries(
+    Object.entries(GRAPH_STAY_BAND_BY_PLACE_SLUG)
+      .filter(([, band]) => band.min != null)
+      .map(([slug, band]) => [slug, band.min as number])
+  );
+
+export function graphStayBand(placeId: string | undefined): {
+  min?: number;
+  rec?: number;
+  max?: number;
+} {
+  if (!placeId) {
+    return {};
+  }
+  for (const [slug, band] of Object.entries(GRAPH_STAY_BAND_BY_PLACE_SLUG)) {
+    if (matchesCatalinaPlaceSlug(placeId, slug)) {
+      return band;
+    }
+  }
+  return {};
+}
+
+export function graphStayMinNights(placeId: string | undefined): number | undefined {
+  return graphStayBand(placeId).min;
+}
+
 /** Every day block is a world-model entity — no custom / name-only rows. */
 export const dayBlockSchema = z.object({
   when: dayWhenSchema.default("flexible"),
@@ -320,6 +383,8 @@ export const clientItinerarySchema = z
     /** Arrival / between-stop / departure transport cards. */
     transfers: z.array(itineraryTransferSchema).default([]),
     workflow: itineraryWorkflowSchema.optional(),
+    /** Advisory night/transport rankings. Not a source of itinerary truth. */
+    rankings: z.any().optional(),
   })
   .superRefine((data, ctx) => {
     data.stops.forEach((stop, index) => {
@@ -640,6 +705,7 @@ const clientItineraryLooseSchema = z.object({
         .default({}),
     })
     .optional(),
+  rankings: z.any().optional(),
 });
 
 /** True when any stop/block still has a pending or non-Fide id. */
