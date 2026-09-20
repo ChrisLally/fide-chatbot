@@ -1,14 +1,14 @@
 import { toast } from "sonner";
+import { DownloadIcon, PrinterIcon } from "lucide-react";
 import { Artifact } from "@/components/chat/create-artifact";
-import {
-  CopyIcon,
-  RedoIcon,
-  SparklesIcon,
-  UndoIcon,
-} from "@/components/chat/icons";
+import { CopyIcon, RedoIcon, UndoIcon } from "@/components/chat/icons";
 import { ItineraryEditor } from "@/components/chat/itinerary-editor";
-import { alisonGoldenItinerary } from "@/lib/itinerary/alison-golden";
 import type { JevScores } from "@/lib/itinerary/jev-types";
+import {
+  itineraryExportFilename,
+  itineraryToPrintHtml,
+  parseItineraryForExport,
+} from "@/lib/itinerary/print-html";
 import {
   parseClientItinerary,
   serializeClientItinerary,
@@ -87,16 +87,50 @@ export const itineraryArtifact = new Artifact<"itinerary", Metadata>({
         toast.success("Copied itinerary JSON!");
       },
     },
-  ],
-  toolbar: [
     {
-      description: "Load Alison golden fixture",
-      icon: <SparklesIcon />,
-      onClick: ({ onSaveContent }) => {
-        // Apply client-side — do not round-trip through the LLM/allowlist binder.
-        onSaveContent(serializeClientItinerary(alisonGoldenItinerary), false);
-        toast.success("Loaded Alison golden fixture");
+      icon: <PrinterIcon size={18} />,
+      description: "Print itinerary",
+      onClick: ({ content }) => {
+        const itinerary = parseItineraryForExport(content);
+        if (!itinerary) {
+          toast.error("Could not format this itinerary for print");
+          return;
+        }
+        const popup = window.open("", "_blank");
+        if (!popup) {
+          toast.error("Allow pop-ups to print, or use Download");
+          return;
+        }
+        popup.document.write(itineraryToPrintHtml(itinerary));
+        popup.document.close();
+        popup.focus();
+        window.setTimeout(() => {
+          popup.print();
+        }, 250);
+      },
+    },
+    {
+      icon: <DownloadIcon size={18} />,
+      description: "Download formatted itinerary",
+      onClick: ({ content }) => {
+        const itinerary = parseItineraryForExport(content);
+        if (!itinerary) {
+          toast.error("Could not format this itinerary for download");
+          return;
+        }
+        const html = itineraryToPrintHtml(itinerary);
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = itineraryExportFilename(itinerary.title, "html");
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast.success("Downloaded formatted itinerary");
       },
     },
   ],
+  toolbar: [],
 });

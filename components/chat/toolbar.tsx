@@ -383,7 +383,7 @@ const PureToolbar = ({
       ]
     : artifactDefinition.toolbar;
 
-  if (toolsByArtifactKind.length === 0) {
+  if (toolsByArtifactKind.length === 0 && !artifactActions) {
     return null;
   }
 
@@ -453,15 +453,17 @@ const PureToolbar = ({
         ) : (
           <>
             {artifactActions}
-            <Tools
-              isAnimating={isAnimating}
-              key="tools"
-              onSaveContent={onSaveContent}
-              selectedTool={selectedTool}
-              sendMessage={sendMessage}
-              setSelectedTool={setSelectedTool}
-              tools={toolsByArtifactKind}
-            />
+            {toolsByArtifactKind.length > 0 ? (
+              <Tools
+                isAnimating={isAnimating}
+                key="tools"
+                onSaveContent={onSaveContent}
+                selectedTool={selectedTool}
+                sendMessage={sendMessage}
+                setSelectedTool={setSelectedTool}
+                tools={toolsByArtifactKind}
+              />
+            ) : null}
           </>
         )}
       </motion.div>
