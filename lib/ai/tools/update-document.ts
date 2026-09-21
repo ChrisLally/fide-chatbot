@@ -79,10 +79,6 @@ export const updateDocument = ({
         dataStream.write({ type: "data-finish", data: null, transient: true });
         return {
           error: message,
-          hint:
-            document.kind === "itinerary"
-              ? "Retry updateDocument after run_view inventory; use exact allowlisted names (server binds Fide ids)."
-              : undefined,
         };
       }
 
@@ -95,9 +91,7 @@ export const updateDocument = ({
         content:
           document.kind === "code"
             ? "The script has been updated successfully."
-            : document.kind === "itinerary"
-              ? "The itinerary was updated successfully."
-              : "The document has been updated successfully.",
+            : "The document has been updated successfully.",
       };
     },
   });

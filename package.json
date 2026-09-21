@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "PGLITE_DATA_DIR=.pglite-dev next dev --turbo",
     "build": "tsx lib/db/migrate && next build",
-    "deploy": "IS_DEMO=1 pnpm build && sudo systemctl restart fide-chatbot.service",
+    "deploy": "sudo systemctl stop fide-chatbot.service; IS_DEMO=1 pnpm build && sudo systemctl start fide-chatbot.service",
     "start": "next start",
     "check": "ultracite check",
     "fix": "ultracite fix",
@@ -110,5 +110,10 @@
     "typescript": "^5.6.3",
     "ultracite": "^7.0.11"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "ai": "7.0.107"
+    }
+  }
 }

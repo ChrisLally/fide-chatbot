@@ -84,12 +84,6 @@ export const editDocument = ({ session, dataStream }: EditDocumentProps) =>
           data: updated,
           transient: true,
         });
-      } else if (document.kind === "itinerary") {
-        dataStream.write({
-          type: "data-itineraryDelta",
-          data: updated,
-          transient: true,
-        });
       } else {
         dataStream.write({
           type: "data-textDelta",

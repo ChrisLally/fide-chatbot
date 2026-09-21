@@ -11,8 +11,22 @@ const allowedFideMcpToolNames = [
   "run_view",
 ] as const;
 
-const MCP_TOOLS_LOAD_ATTEMPTS = 3;
+const MCP_TOOLS_LOAD_ATTEMPTS = 6;
 const MCP_TOOLS_RETRY_DELAY_MS = 750;
+
+function retryDelayMs(error: unknown, attempt: number): number {
+  const text = error instanceof Error ? error.message : String(error);
+  const waking = /runner_waking/.test(text);
+  const match = text.match(/retryAfterSeconds["\s:]+(\d+)/i);
+  if (waking || match) {
+    const seconds = match ? Number(match[1]) : 5;
+    const waitMs = Number.isFinite(seconds)
+      ? Math.min(Math.max(seconds, 1), 30) * 1000
+      : 5000;
+    return waitMs + 250;
+  }
+  return MCP_TOOLS_RETRY_DELAY_MS * attempt;
+}
 
 function filterFideMcpTools(tools: ToolSet): ToolSet {
   return Object.fromEntries(
@@ -54,14 +68,16 @@ export async function loadFideMcpTools(): Promise<{
     }
 
     try {
-      const tools = filterFideMcpTools(await client.tools());
+      const tools = filterFideMcpTools(
+        (await client.tools()) as ToolSet
+      );
       return { client, tools };
     } catch (error) {
       lastError = error;
       await client.close().catch(() => undefined);
 
       if (attempt < MCP_TOOLS_LOAD_ATTEMPTS) {
-        await sleep(MCP_TOOLS_RETRY_DELAY_MS * attempt);
+        await sleep(retryDelayMs(error, attempt));
       }
     }
   }

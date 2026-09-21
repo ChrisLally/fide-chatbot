@@ -31,6 +31,7 @@ const statusLabels = {
   disconnected: "Disconnected",
   connecting: "Connecting…",
   connected: "Connected",
+  closing: "Closing…",
   error: "Error",
 } as const;
 
@@ -49,6 +50,7 @@ class VoiceRealtimeSession extends Experimental_AbstractRealtimeSession {
   } = {
     status: new Set(),
     messages: new Set(),
+    session: new Set(),
     events: new Set(),
     isCapturing: new Set(),
     isPlaying: new Set(),

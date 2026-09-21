@@ -24,26 +24,27 @@ async function openPglite(dataDir: string): Promise<PGlite> {
     return client;
   };
 
-  try {
-    return await open();
-  } catch (error) {
-    const lockPath = path.join(dataDir, "postmaster.pid");
-    if (!existsSync(lockPath)) {
-      throw error;
-    }
+  const lockPath = path.join(dataDir, "postmaster.pid");
+  let lastError: unknown;
 
-    // Stale lock from an unclean shutdown (e.g. Ctrl+C during `pnpm dev`).
-    unlinkSync(lockPath);
-
+  for (let attempt = 1; attempt <= 4; attempt++) {
     try {
       return await open();
-    } catch (retryError) {
-      throw new Error(
-        `PGlite failed to open at ${dataDir}. If this persists, remove the data directory and rerun migrations.`,
-        { cause: retryError }
-      );
+    } catch (error) {
+      lastError = error;
+      if (existsSync(lockPath)) {
+        unlinkSync(lockPath);
+      }
+      if (attempt < 4) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      }
     }
   }
+
+  throw new Error(
+    `PGlite failed to open at ${dataDir}. The data directory was not removed.`,
+    { cause: lastError }
+  );
 }
 
 async function initDb(): Promise<DrizzleDb> {
@@ -64,6 +65,12 @@ export async function getDb(): Promise<DrizzleDb> {
     return globalForDb.pgliteDb;
   }
 
-  globalForDb.pgliteInitPromise ??= initDb();
+  if (!globalForDb.pgliteInitPromise) {
+    globalForDb.pgliteInitPromise = initDb().catch((error) => {
+      globalForDb.pgliteInitPromise = undefined;
+      throw error;
+    });
+  }
+
   return globalForDb.pgliteInitPromise;
 }

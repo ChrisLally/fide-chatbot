@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  ai: 7.0.107
+
 importers:
 
   .:
@@ -278,12 +281,6 @@ packages:
 
   '@ai-sdk/anthropic@4.0.8':
     resolution: {integrity: sha512-ZqT9kLxS2Cbo/4juwtEGbYyP0jNQTnUUKy2nQ8Vn28xqNu50+TukO/oCEWCpm18YbQq7N+hr6ClJs/ATTFpBTg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/gateway@4.0.11':
-    resolution: {integrity: sha512-ZdZzQnBxYfjJpWpSNkV+rRWycwTBhxyvwGvxcwx9g+WQoy3MK2xNahSySEgP9hD/X2xY9jkjd0xB67oDE3rLMA==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -2417,12 +2414,6 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  ai@7.0.14:
-    resolution: {integrity: sha512-qA82fZyD4xh9IDB+s3SvwbjwjR+GGRmJjTYMwON1uROj8vPDIQbPTZLLq6ZWTVESn9daeH1GMv0zKfVLwNU2sQ==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
@@ -4208,13 +4199,6 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.5(zod@3.25.76)
       zod: 3.25.76
 
-  '@ai-sdk/gateway@4.0.11(zod@3.25.76)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.2
-      '@ai-sdk/provider-utils': 5.0.5(zod@3.25.76)
-      '@vercel/oidc': 3.2.0
-      zod: 3.25.76
-
   '@ai-sdk/gateway@4.0.87(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 4.0.17
@@ -4290,7 +4274,7 @@ snapshots:
       '@ai-sdk/mcp': 2.0.7(zod@3.25.76)
       '@ai-sdk/provider': 4.0.2
       '@ai-sdk/provider-utils': 5.0.5(zod@3.25.76)
-      ai: 7.0.14(zod@3.25.76)
+      ai: 7.0.107(zod@3.25.76)
       react: 19.0.1
       swr: 2.4.2(react@19.0.1)
       throttleit: 2.1.0
@@ -6135,13 +6119,6 @@ snapshots:
       '@ai-sdk/gateway': 4.0.87(zod@3.25.76)
       '@ai-sdk/provider': 4.0.17
       '@ai-sdk/provider-utils': 5.0.45(zod@3.25.76)
-      zod: 3.25.76
-
-  ai@7.0.14(zod@3.25.76):
-    dependencies:
-      '@ai-sdk/gateway': 4.0.11(zod@3.25.76)
-      '@ai-sdk/provider': 4.0.2
-      '@ai-sdk/provider-utils': 5.0.5(zod@3.25.76)
       zod: 3.25.76
 
   argparse@2.0.1: {}
