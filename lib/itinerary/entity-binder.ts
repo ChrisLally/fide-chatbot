@@ -50,7 +50,7 @@ export function normalizeEntityName(name: string): string {
 
 function kindFromViewKey(viewKey: string): PeekEntityKind | null {
   const key = viewKey.toLowerCase();
-  if (key.includes("hotel")) return "hotel";
+  if (key.includes("hotel") || key.includes("venue")) return "hotel";
   if (key.includes("activity")) return "activity";
   if (key.includes("attraction")) return "attraction";
   if (key.includes("place") || key.includes("destination")) return "destination";
@@ -106,7 +106,7 @@ export function harvestEntitiesFromRunView(
     const headingIsFide = Boolean(fideIdHex(headingRaw));
     let name = headingIsFide
       ? nameFromHotelHeading(section) ||
-        section.match(/\*\*(?:Place|Activity|Attraction|Name):\*\*\s*(.+)/i)?.[1]?.trim() ||
+        section.match(/\*\*(?:Place|Activity|Attraction|Venue|Name|Hotel):\*\*\s*(.+)/i)?.[1]?.trim() ||
         ""
       : headingRaw.replace(/\*\*/g, "").trim();
 

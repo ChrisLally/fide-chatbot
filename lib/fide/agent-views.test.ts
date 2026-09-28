@@ -9,8 +9,10 @@ import {
 describe("agent-views", () => {
   it("blocks unbounded inventory dumps", () => {
     expect(isAgentBlockedView("inventory/hotels-all")).toBe(true);
+    expect(isAgentBlockedView("inventory/venues-all")).toBe(true);
     expect(isAgentBlockedView("inventory/places")).toBe(true);
     expect(isAgentBlockedView("inventory/hotels-by-city")).toBe(false);
+    expect(isAgentBlockedView("inventory/venues-by-city")).toBe(false);
     expect(isAgentBlockedView("inventory/places-search")).toBe(false);
   });
 

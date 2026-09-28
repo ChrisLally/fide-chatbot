@@ -6,6 +6,7 @@
 /** Unfiltered list views — hidden from list_views and refused by run_view. */
 export const AGENT_BLOCKED_VIEW_KEYS = new Set([
   "inventory/hotels-all",
+  "inventory/venues-all",
   "inventory/activities-all",
   "inventory/attractions-all",
   "inventory/transport-all",
@@ -18,6 +19,7 @@ export const AGENT_BLOCKED_VIEW_KEYS = new Set([
 /** Prefer these filtered list views instead. */
 export const AGENT_FILTERED_LIST_HINTS: Record<string, string> = {
   "inventory/hotels-all": "inventory/hotels-by-city (required: city)",
+  "inventory/venues-all": "inventory/venues-by-city (required: city)",
   "inventory/activities-all": "inventory/activities-by-city (required: city)",
   "inventory/attractions-all": "inventory/attractions-by-city (required: city)",
   "inventory/transport-all":

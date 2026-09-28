@@ -1,6 +1,8 @@
 const contextQueries = {
   hotels: "inventory/hotels-all",
   hotelDetail: "inventory/hotel",
+  venues: "inventory/venues-all",
+  venueDetail: "inventory/venue",
   activities: "inventory/activities-all",
   activityDetail: "inventory/activity",
   attractions: "inventory/attractions-all",
@@ -13,6 +15,7 @@ const contextQueries = {
   transportationDetail: "inventory/transport-option",
   collections: "inventory/collections-all",
   collectionDetail: "inventory/collection",
+  events: "inventory/events-featured",
   sameAsLinks: "inventory/same-as-links",
   clusterMembers: "inventory/cluster-members",
   advisorLinks: "inventory/advisor-links-all",
@@ -23,6 +26,9 @@ export type ContextQueryKey = keyof typeof contextQueries;
 const viewToQuery: Record<string, ContextQueryKey> = {
   "inventory/hotels-all": "hotels",
   "inventory/hotel": "hotelDetail",
+  "inventory/venues-all": "venues",
+  "inventory/venue": "venueDetail",
+  "inventory/venues-by-city": "venues",
   "inventory/activities-all": "activities",
   "inventory/activity": "activityDetail",
   "inventory/attractions-all": "attractions",
@@ -35,6 +41,7 @@ const viewToQuery: Record<string, ContextQueryKey> = {
   "inventory/transport-option": "transportationDetail",
   "inventory/collections-all": "collections",
   "inventory/collection": "collectionDetail",
+  "inventory/events-featured": "events",
   "inventory/same-as-links": "sameAsLinks",
   "inventory/cluster-members": "clusterMembers",
   "inventory/advisor-links-all": "advisorLinks",
@@ -47,6 +54,7 @@ export function resolveContextQuery(viewKey: string): ContextQueryKey | null {
 export function isDetailView(viewKey: string): boolean {
   return (
     viewKey === "inventory/hotel" ||
+    viewKey === "inventory/venue" ||
     viewKey === "inventory/activity" ||
     viewKey === "inventory/attraction" ||
     viewKey === "inventory/itinerary" ||
@@ -60,6 +68,9 @@ export function getViewTitle(viewKey: string): string {
   const titles: Record<string, string> = {
     "inventory/hotels-all": "Hotels",
     "inventory/hotel": "Hotel",
+    "inventory/venues-all": "Venues",
+    "inventory/venue": "Venue",
+    "inventory/venues-by-city": "Venues by city",
     "inventory/activities-all": "Activities",
     "inventory/activity": "Activity",
     "inventory/attractions-all": "Attractions",
@@ -72,6 +83,7 @@ export function getViewTitle(viewKey: string): string {
     "inventory/transport-option": "Transportation option",
     "inventory/collections-all": "Collections",
     "inventory/collection": "Collection",
+    "inventory/events-featured": "Featured events",
     "inventory/same-as-links": "Same-as links",
     "inventory/cluster-members": "Cluster members",
     "inventory/advisor-links-all": "Advisor links",

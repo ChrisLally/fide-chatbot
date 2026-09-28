@@ -6,6 +6,8 @@ import { ChatbotError } from "@/lib/errors";
 const contextQueries = {
   hotels: process.env.FIDE_CONTEXT_QUERY_HOTELS ?? "inventory/hotels-all",
   hotelDetail: process.env.FIDE_CONTEXT_QUERY_HOTEL_DETAIL ?? "inventory/hotel",
+  venues: process.env.FIDE_CONTEXT_QUERY_VENUES ?? "inventory/venues-all",
+  venueDetail: process.env.FIDE_CONTEXT_QUERY_VENUE_DETAIL ?? "inventory/venue",
   activities:
     process.env.FIDE_CONTEXT_QUERY_ACTIVITIES ?? "inventory/activities-all",
   activityDetail:
@@ -20,6 +22,8 @@ const contextQueries = {
     process.env.FIDE_CONTEXT_QUERY_COLLECTIONS ?? "inventory/collections-all",
   collectionDetail:
     process.env.FIDE_CONTEXT_QUERY_COLLECTION_DETAIL ?? "inventory/collection",
+  events:
+    process.env.FIDE_CONTEXT_QUERY_EVENTS ?? "inventory/events-featured",
   sameAsLinks:
     process.env.FIDE_CONTEXT_QUERY_SAME_AS ?? "inventory/same-as-links",
   clusterMembers:

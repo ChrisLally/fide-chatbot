@@ -27,12 +27,17 @@ import { isDetailView } from "@/lib/fide/view-query-map";
 const inventoryViewKeys = new Set([
   "inventory/hotels-all",
   "inventory/hotel",
+  "inventory/venues-all",
+  "inventory/venue",
+  "inventory/venues-by-city",
   "inventory/activities-all",
   "inventory/activity",
   "inventory/places",
   "inventory/place",
   "inventory/transport-all",
   "inventory/transport-option",
+  "inventory/collections-all",
+  "inventory/events-featured",
 ]);
 
 function shouldRenderTravelCard(
