@@ -1,7 +1,7 @@
 /**
  * Eval: run Taylor on a trip prompt, log tool calls, validate itinerary Fide ids.
  *
- * Usage: pnpm eval:itinerary
+ * Usage: pnpm eval:itinerary [--stays] [prompt...]
  * Not Playwright — Bedrock + Fide MCP only.
  */
 import { config } from "dotenv";
@@ -39,14 +39,18 @@ import {
   proposeRouteSchema,
 } from "../lib/itinerary/patch";
 
+import { approveCurrentStage } from "../lib/itinerary/stages";
+
 config({ path: resolve(process.cwd(), ".env") });
 
+const argv = process.argv.slice(2);
+const THROUGH_STAYS = argv.includes("--stays");
 const USER_PROMPT =
-  process.argv.slice(2).join(" ").trim() ||
+  argv.filter((a) => a !== "--stays").join(" ").trim() ||
   "make an itinerary for 4 day trip in australia. you choose from and to where and such";
 
 const WORLD_MODEL = process.env.FIDE_WORLD_MODEL_KEY?.trim() || "catalina-world-model";
-const MAX_STEPS = 16;
+const MAX_STEPS = THROUGH_STAYS ? 28 : 16;
 
 type TraceEvent = {
   step: number;
@@ -391,13 +395,66 @@ async function main() {
       return;
     }
 
+    if (THROUGH_STAYS) {
+      captured = approveCurrentStage(captured);
+      console.log("\n── Simulated Approve Route → stays stage ──");
+      const staysResult = await generateText({
+        model,
+        system,
+        prompt: [
+          "The human clicked Approve Route. Workflow stage is now stays.",
+          "For EACH overnight stop, call inventory/hotels-by-city (city slug from the place name), then patchItinerary proposeStay { stopIndex, hotelId } with a Fide hotel id from that view.",
+          "Lady Elliot Island is a resort island — if hotels-by-city returns no rows, skip that stop (no hotel required).",
+          "Do not ask clarifying questions. Do not start the days stage. Stop when every non-island stop has a hotelId.",
+          `Current itinerary JSON:\n${serializeClientItinerary(captured)}`,
+        ].join("\n"),
+        tools: fideTools,
+        stopWhen: stepCountIs(MAX_STEPS),
+      });
+      console.log("\n── Stays assistant text ──");
+      console.log(staysResult.text.trim() || "(empty — tool-only turn)");
+    }
+
     const problems = assertFideIds(captured);
+    const hotelGaps: string[] = [];
+    if (THROUGH_STAYS) {
+      captured.stops.forEach((stop, i) => {
+        const lei = /lady\s*elliot/i.test(stop.placeName);
+        if (!lei && !stop.hotelId) {
+          hotelGaps.push(`stops[${i}] (${stop.placeName}) — no hotel (ok if city has no hotel inventory)`);
+        }
+      });
+    }
+
     console.log("\n── Itinerary JSON (bound) ──");
     console.log(JSON.stringify(captured, null, 2));
 
     printUiPreview(captured);
 
     console.log("\n── Assertions ──");
+    if (THROUGH_STAYS) {
+      const withHotels = captured.stops.filter((s) => s.hotelId).length;
+      console.log(
+        `stays: ${withHotels}/${captured.stops.length} stops have hotels`
+      );
+      for (const gap of hotelGaps) {
+        console.log(`WARN: ${gap}`);
+      }
+      if (withHotels < 3) {
+        problems.push("Expected hotels on major city stops (sydney/melbourne/…)");
+      } else {
+        console.log("PASS: stays stage named hotels bound with Fide ids.");
+      }
+      if (
+        captured.stops.some(
+          (s) => /lady\s*elliot/i.test(s.placeName) && !s.hotelId
+        )
+      ) {
+        console.log(
+          "PASS: Lady Elliot left without hotel row (resort island / no inventory)."
+        );
+      }
+    }
     if (problems.length === 0) {
       console.log("PASS: all placeId / entityId / hotelId values are Fide ids (0x…).");
     } else {
