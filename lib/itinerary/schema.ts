@@ -744,7 +744,7 @@ export function parseClientItinerary(
       return {
         ok: false,
         error:
-          "No overnight stops (every stop needs placeName; server binds placeId from allowlist)",
+          "No overnight stops (every stop needs a place; placeId must be a did:fide id)",
       };
     }
 

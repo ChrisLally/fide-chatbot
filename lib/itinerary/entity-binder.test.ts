@@ -59,17 +59,17 @@ describe("harvestEntitiesFromRunView", () => {
 });
 
 describe("bindItineraryToAllowlist", () => {
-  it("binds names to allowlisted fide ids and drops unknowns", () => {
+  it("binds allowlisted fide ids and drops unknowns", () => {
     const draft: ClientItinerary = {
       title: "SA short",
       summary: "",
       durationDays: 2,
       stops: [
         {
-          placeId: "pending:place:Adelaide",
+          placeId: ADELAIDE,
           placeName: "Adelaide",
           nights: 2,
-          hotelId: "pending:hotel:Mayfair Hotel Adelaide",
+          hotelId: HOTEL,
           hotelName: "Mayfair Hotel Adelaide",
         },
         {
@@ -87,7 +87,7 @@ describe("bindItineraryToAllowlist", () => {
           blocks: [
             {
               when: "afternoon",
-              entityId: "pending:activity:Central Market Tour",
+              entityId: ACTIVITY,
               entityName: "Central Market Tour",
               entityKind: "activity",
             },
@@ -125,9 +125,9 @@ describe("bindItineraryToAllowlist", () => {
     assert.ok(omitted.some((o) => o.includes("Fake Dive")));
   });
 
-  it("prefers name match over a wrong model-supplied id", () => {
+  it("keeps model-supplied fide id even when the name is wrong", () => {
     const draft: ClientItinerary = {
-      title: "Wrong id",
+      title: "Wrong name",
       summary: "",
       durationDays: 1,
       stops: [
@@ -153,13 +153,30 @@ describe("bindItineraryToAllowlist", () => {
       { fideId: MELBOURNE, name: "Melbourne", kind: "destination" },
     ]);
 
-    assert.equal(itinerary.stops[0].placeId, ADELAIDE);
-    assert.equal(itinerary.stops[0].placeName, "Adelaide");
+    assert.equal(itinerary.stops[0].placeId, MELBOURNE);
+    assert.equal(itinerary.stops[0].placeName, "Melbourne");
+  });
+
+  it("does not bind by name alone", () => {
+    const draft: ClientItinerary = {
+      title: "Name only",
+      summary: "",
+      durationDays: 1,
+      stops: [{ placeId: "pending:place:Adelaide", placeName: "Adelaide", nights: 1 }],
+      days: [],
+    };
+
+    const { itinerary, omitted } = bindItineraryToAllowlist(draft, [
+      { fideId: ADELAIDE, name: "Adelaide", kind: "destination" },
+    ]);
+
+    assert.equal(itinerary.stops.length, 0);
+    assert.ok(omitted.some((o) => o.includes("Adelaide")));
   });
 });
 
 describe("createTurnEntityBinder + parse allowUnbound", () => {
-  it("parses name-only draft then binds", () => {
+  it("parses draft with fide ids then binds", () => {
     const binder = createTurnEntityBinder();
     binder.harvestRunView(
       "inventory/places",
@@ -171,19 +188,20 @@ describe("createTurnEntityBinder + parse allowUnbound", () => {
     );
 
     const raw = JSON.stringify({
-      title: "Name only",
+      title: "Ids only",
       summary: "",
       durationDays: 1,
-      stops: [{ placeName: "Adelaide", nights: 1 }],
+      stops: [{ placeId: ADELAIDE, placeName: "Adelaide", nights: 1 }],
       days: [
         {
           dayNumber: 1,
           stopIndex: 0,
-          title: "Market",
+          title: "Day 1",
           description: "",
           blocks: [
             {
               when: "morning",
+              entityId: ACTIVITY,
               entityName: "Central Market Tour",
               entityKind: "activity",
             },
@@ -193,13 +211,11 @@ describe("createTurnEntityBinder + parse allowUnbound", () => {
     });
 
     const parsed = parseClientItinerary(raw, { allowUnbound: true });
-    assert.equal(parsed.ok, true);
+    assert.ok(parsed.ok);
     if (!parsed.ok) return;
-
-    assert.match(parsed.data.stops[0].placeId, /^pending:/);
     const { itinerary, omitted } = binder.bind(parsed.data);
-    assert.equal(omitted.length, 0);
     assert.equal(itinerary.stops[0].placeId, ADELAIDE);
     assert.equal(itinerary.days[0].blocks?.[0].entityId, ACTIVITY);
+    assert.equal(omitted.length, 0);
   });
 });

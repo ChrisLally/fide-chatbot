@@ -250,23 +250,7 @@ function tryParseJsonEntities(
   }
 }
 
-function findByName(
-  entities: AllowlistEntity[],
-  name: string,
-  kind: PeekEntityKind
-): AllowlistEntity | null {
-  const target = normalizeEntityName(name);
-  if (!target) return null;
-  const pool = entities.filter((e) => e.kind === kind);
-  const exact = pool.find((e) => normalizeEntityName(e.name) === target);
-  if (exact) return exact;
-  const partial = pool.find((e) => {
-    const n = normalizeEntityName(e.name);
-    return n.includes(target) || target.includes(n);
-  });
-  return partial ?? null;
-}
-
+/** Resolve only by Fide id — never by display name. */
 function kindMatchesFideId(kind: PeekEntityKind, id: string): boolean {
   const entityType = fideIdEntityType(id);
   if (!entityType) return false;
@@ -312,10 +296,21 @@ function findById(
   );
 }
 
+function resolveById(
+  entities: AllowlistEntity[],
+  id: string | undefined,
+  name: string,
+  kind: PeekEntityKind
+): AllowlistEntity | null {
+  if (!id) return null;
+  return (
+    findById(entities, id, kind) ?? acceptSuppliedFideId(id, name, kind)
+  );
+}
+
 /**
- * Bind itinerary names to allowlisted Fide ids.
- * Prefers name+kind match; model-supplied ids accepted if allowlisted OR already
- * a well-typed did:fide id for that kind (golden / prior-bound drafts).
+ * Bind itinerary entities by Fide id only.
+ * Display names are labels; a wrong name never overrides placeId/hotelId/entityId.
  */
 export function bindItineraryToAllowlist(
   itinerary: ClientItinerary,
@@ -325,12 +320,12 @@ export function bindItineraryToAllowlist(
   let bound = 0;
 
   const stops = itinerary.stops.flatMap((stop, index) => {
-    const place =
-      (stop.placeId
-        ? findById(entities, stop.placeId, "destination")
-        : null) ??
-      acceptSuppliedFideId(stop.placeId, stop.placeName, "destination") ??
-      findByName(entities, stop.placeName, "destination");
+    const place = resolveById(
+      entities,
+      stop.placeId,
+      stop.placeName,
+      "destination"
+    );
     if (!place) {
       omitted.push(`stop ${index + 1} "${stop.placeName}"`);
       return [];
@@ -340,10 +335,12 @@ export function bindItineraryToAllowlist(
     let hotelId = stop.hotelId;
     let hotelName = stop.hotelName;
     if (hotelName || hotelId) {
-      const hotel =
-        (hotelId ? findById(entities, hotelId, "hotel") : null) ??
-        acceptSuppliedFideId(hotelId, hotelName || "", "hotel") ??
-        (hotelName ? findByName(entities, hotelName, "hotel") : null);
+      const hotel = resolveById(
+        entities,
+        hotelId,
+        hotelName || "",
+        "hotel"
+      );
       if (hotel) {
         hotelId = hotel.fideId;
         hotelName = hotel.name;
@@ -370,12 +367,12 @@ export function bindItineraryToAllowlist(
   // Remap days when stops dropped
   const keptOldIndexes: number[] = [];
   itinerary.stops.forEach((stop, index) => {
-    const place =
-      (stop.placeId
-        ? findById(entities, stop.placeId, "destination")
-        : null) ??
-      acceptSuppliedFideId(stop.placeId, stop.placeName, "destination") ??
-      findByName(entities, stop.placeName, "destination");
+    const place = resolveById(
+      entities,
+      stop.placeId,
+      stop.placeName,
+      "destination"
+    );
     if (place) {
       keptOldIndexes.push(index);
     }
@@ -390,14 +387,12 @@ export function bindItineraryToAllowlist(
       const blocks: DayBlock[] = [];
       for (const block of day.blocks ?? []) {
         const kind = block.entityKind;
-        const matched =
-          findById(entities, block.entityId, kind) ??
-          acceptSuppliedFideId(
-            block.entityId,
-            block.entityName || block.title || "",
-            kind
-          ) ??
-          findByName(entities, block.entityName || block.title || "", kind);
+        const matched = resolveById(
+          entities,
+          block.entityId,
+          block.entityName || block.title || "",
+          kind
+        );
         if (!matched) {
           omitted.push(
             `day ${day.dayNumber} block "${block.entityName || block.title || block.entityId}"`
@@ -448,7 +443,7 @@ export function formatAllowlistForPrompt(entities: AllowlistEntity[]): string {
     byKind.set(entity.kind, list);
   }
   const lines: string[] = [
-    "ALLOWED ENTITIES (server will bind names → fide_id; prefer these exact names):",
+    "ALLOWED ENTITIES (use exact did:fide:0x… ids from run_view; names are labels only):",
   ];
   for (const kind of [
     "destination",
@@ -460,7 +455,7 @@ export function formatAllowlistForPrompt(entities: AllowlistEntity[]): string {
     if (!list?.length) continue;
     lines.push(`\n## ${kind}`);
     for (const entity of list.slice(0, 80)) {
-      lines.push(`- ${entity.name}`);
+      lines.push(`- ${entity.name} — ${entity.fideId}`);
     }
   }
   return lines.join("\n");
