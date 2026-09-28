@@ -83,18 +83,18 @@ Prefer world model key \`catalina-world-model\`. Always filter — never dump th
 **List views (require params):**
 - \`inventory/places-search\` — required \`q\` (place name substring or slug, e.g. "Lady Elliot", sydney)
 - \`inventory/hotels-by-city\` — required \`city\` (slug, place IRI, or place name used as slug)
-- \`inventory/venues-by-city\` — required \`city\` (restaurants / bars / ATDW F&B and venue products)
+- \`inventory/restaurants-by-city\` — required \`city\` (ATDW restaurants by city)
 - \`inventory/activities-by-city\` — required \`city\`
 - \`inventory/attractions-by-city\` — required \`city\`
 - \`inventory/transport-corridor\` — required \`from\` and/or \`to\` (place slug)
 - \`inventory/collections-all\` — small catalog of signature collections (OK)
 - \`inventory/events-featured\` — featured TA calendar events (optional \`city\`; small catalog OK)
 
-**Detail views:** \`inventory/place\`, \`hotel\`, \`venue\`, \`activity\`, \`attraction\`, \`transport-option\`, \`collection\`, \`cluster-members\` (pass \`fideId\` / IRI as documented by get_view).
+**Detail views:** \`inventory/place\`, \`hotel\`, \`restaurant\`, \`activity\`, \`attraction\`, \`transport-option\`, \`collection\`, \`cluster-members\` (pass \`fideId\` / IRI as documented by get_view).
 
 On \`inventory/place\`, read \`sell_role\`, \`access_note\`, \`good_for\` / \`bad_for\`, stay nights, and \`advisor_note\` before choosing overnight bases (reef hierarchy and light-aircraft access live there).
 
-Do **not** use unbounded dumps (\`inventory/hotels-all\`, \`venues-all\`, \`activities-all\`, \`attractions-all\`, \`transport-all\`, \`places\`, \`itineraries-all\`, \`advisor-links-all\`, \`same-as-links\`) — they are hidden from the agent. Do **not** copy Tourism Australia itinerary templates into client trips; build stops from places/hotels/activities you looked up. For dining and bars, look up \`venues-by-city\` (publisher ATDW data — not Catalina hotel inventory).
+Do **not** use unbounded dumps (\`inventory/hotels-all\`, \`restaurants-all\`, \`activities-all\`, \`attractions-all\`, \`transport-all\`, \`places\`, \`itineraries-all\`, \`advisor-links-all\`, \`same-as-links\`) — they are hidden from the agent. Do **not** copy Tourism Australia itinerary templates into client trips; build stops from places/hotels/activities you looked up. For dining and bars, look up \`restaurants-by-city\` (publisher ATDW data — not Catalina hotel inventory).
 
 Use list_world_models / list_views, get_view when parameters are unclear, then run_view with required filters before answering or createDocument.
 `;

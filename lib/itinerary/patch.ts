@@ -12,6 +12,7 @@ import {
   type PeekEntityKind,
 } from "./schema";
 import { verifyItineraryStage } from "./stage-verifier";
+import type { PlacePolicyMap } from "./place-policy";
 import {
   calendarDayCount,
   ensureWorkflow,
@@ -21,6 +22,9 @@ import {
   withWorkflow,
 } from "./stages";
 
+export type PatchVerifyOptions = {
+  placePolicies?: PlacePolicyMap;
+};
 const fideIdSchema = z
   .string()
   .min(1)
@@ -308,13 +312,18 @@ function stageBlocksOp(
   return null;
 }
 
-function verifyHard(itinerary: ClientItinerary): PatchResult | null {
+function verifyHard(
+  itinerary: ClientItinerary,
+  options: PatchVerifyOptions = {}
+): PatchResult | null {
   const stage = ensureWorkflow(itinerary).stage;
-  const verified = verifyItineraryStage(itinerary, stage);
+  const verified = verifyItineraryStage(itinerary, stage, {
+    placePolicies: options.placePolicies,
+  });
   const blockers = verified.errors.filter(
     (error) =>
-      /Cairns and Port Douglas/i.test(error) ||
-      /Townsville|Magnetic/i.test(error) ||
+      /incompatible-overnight|overnight bases/i.test(error) ||
+      /overnight-requires-brief|standard first-timer overnight/i.test(error) ||
       /stay-min/i.test(error) ||
       /exceeds 3\.5h/i.test(error)
   );
@@ -327,7 +336,8 @@ function verifyHard(itinerary: ClientItinerary): PatchResult | null {
 export function applyItineraryPatch(
   previous: ClientItinerary,
   patch: ItineraryPatch,
-  binder?: TurnEntityBinder
+  binder?: TurnEntityBinder,
+  options: PatchVerifyOptions = {}
 ): PatchResult {
   const itinerary = structuredClone(previous) as ClientItinerary;
   const workflow = ensureWorkflow(itinerary);
@@ -410,7 +420,7 @@ export function applyItineraryPatch(
           patch.placeName || "Place"
         ),
       };
-      return verifyHard(itinerary) ?? parseKeep(itinerary);
+      return verifyHard(itinerary, options) ?? parseKeep(itinerary);
     }
     case "removeStop": {
       const bad = failIndex(patch.stopIndex, "stopIndex");
@@ -440,7 +450,7 @@ export function applyItineraryPatch(
         }
       );
       itinerary.durationDays = nightsSum(itinerary.stops);
-      return verifyHard(itinerary) ?? { ok: true, itinerary, omitted: [] };
+      return verifyHard(itinerary, options) ?? { ok: true, itinerary, omitted: [] };
     }
     case "replaceStopPlace": {
       const bad = failIndex(patch.stopIndex, "stopIndex");
@@ -461,7 +471,7 @@ export function applyItineraryPatch(
         hotelName: undefined,
       };
       itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
-      return verifyHard(itinerary) ?? parseKeep(itinerary);
+      return verifyHard(itinerary, options) ?? parseKeep(itinerary);
     }
     case "setDayBlocks":
     case "proposeDay": {
@@ -511,7 +521,7 @@ export function applyItineraryPatch(
         transfers.push(next);
       }
       itinerary.transfers = transfers;
-      return verifyHard(itinerary) ?? { ok: true, itinerary, omitted: [] };
+      return verifyHard(itinerary, options) ?? { ok: true, itinerary, omitted: [] };
     }
     case "setDayCopy": {
       const day = itinerary.days.find((row) => row.dayNumber === patch.dayNumber);
@@ -549,7 +559,8 @@ export function applyItineraryPatch(
 export function materializeRoute(
   title: string,
   draft: ProposeRoute,
-  binder?: TurnEntityBinder
+  binder?: TurnEntityBinder,
+  options: PatchVerifyOptions = {}
 ): PatchResult {
   const fitted = fitStopsToTripLength(
     draft.stops.map((stop) => ({
@@ -587,7 +598,7 @@ export function materializeRoute(
     },
     { stage: "route", approved: {} }
   );
-  return verifyHard(next) ?? { ok: true, itinerary: next, omitted: bound.omitted };
+  return verifyHard(next, options) ?? { ok: true, itinerary: next, omitted: bound.omitted };
 }
 
 /** N-day trip → N−1 hotel nights so the last calendar card is departure morning. */

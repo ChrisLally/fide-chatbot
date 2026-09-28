@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { CheckIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
 } from "@/lib/itinerary/schema";
 import { verifyItineraryStage } from "@/lib/itinerary/stage-verifier";
 import { applyItineraryPatch } from "@/lib/itinerary/patch";
+import type { PlacePolicy, PlacePolicyMap } from "@/lib/itinerary/place-policy";
 import {
   STAGE_HELP,
   STAGE_LABELS,
@@ -445,8 +446,58 @@ export function ItineraryEditor({
   jev?: JevScores | null;
 }) {
   const [peek, setPeek] = useState<PeekTarget | null>(null);
+  const [placePolicies, setPlacePolicies] = useState<PlacePolicyMap>(
+    () => new Map()
+  );
   const parsed = parseClientItinerary(content);
   const editable = isCurrentVersion && status !== "streaming";
+
+  const placeIdsKey = useMemo(() => {
+    if (!parsed.ok) {
+      return "";
+    }
+    return parsed.data.stops
+      .map((stop) => stop.placeId)
+      .filter(Boolean)
+      .join("|");
+  }, [parsed]);
+
+  useEffect(() => {
+    if (!placeIdsKey) {
+      setPlacePolicies(new Map());
+      return;
+    }
+    const placeIds = placeIdsKey.split("|");
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/itinerary/place-policies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ placeIds }),
+        });
+        if (!response.ok || cancelled) {
+          return;
+        }
+        const body = (await response.json()) as {
+          policies?: Record<string, unknown>;
+        };
+        if (cancelled || !body.policies) {
+          return;
+        }
+        const next: PlacePolicyMap = new Map();
+        for (const [id, policy] of Object.entries(body.policies)) {
+          next.set(id, policy as PlacePolicy);
+        }
+        setPlacePolicies(next);
+      } catch {
+        // fail-open — server create/patch still enforces
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [placeIdsKey]);
 
   if (!parsed.ok) {
     if (status === "streaming" || !content.trim()) {
@@ -479,8 +530,11 @@ export function ItineraryEditor({
   };
   const workflow = ensureWorkflow(itinerary);
   const stage = workflow.stage;
-  const verify = verifyItineraryStage(itinerary, stage);
-  const approveGate = verifyItineraryStage(itinerary, stage, { forApprove: true });
+  const verify = verifyItineraryStage(itinerary, stage, { placePolicies });
+  const approveGate = verifyItineraryStage(itinerary, stage, {
+    forApprove: true,
+    placePolicies,
+  });
 
   const routeLocked = Boolean(workflow.approved.route) && stage !== "route";
   const daysEditable = editable && (stage === "days" || stage === "complete");
@@ -518,11 +572,16 @@ export function ItineraryEditor({
       return;
     }
     const nextNights = Math.max(1, itinerary.stops[stopIndex].nights + delta);
-    const result = applyItineraryPatch(itinerary, {
-      op: "setStopNights",
-      stopIndex,
-      nights: nextNights,
-    });
+    const result = applyItineraryPatch(
+      itinerary,
+      {
+        op: "setStopNights",
+        stopIndex,
+        nights: nextNights,
+      },
+      undefined,
+      { placePolicies }
+    );
     if (!result.ok) {
       toast.error(result.error);
       return;

@@ -6,6 +6,7 @@ import {
   applyItineraryPatch,
   itineraryPatchSchema,
 } from "@/lib/itinerary/patch";
+import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
 import { parseClientItinerary, serializeClientItinerary } from "@/lib/itinerary/schema";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
 import { itineraryWithRankings, publishJevScores } from "@/lib/itinerary/jev";
@@ -50,7 +51,12 @@ export const patchItinerary = ({
         return { error: `Cannot patch invalid itinerary JSON: ${parsed.error}` };
       }
 
-      const result = applyItineraryPatch(parsed.data, patch, entityBinder);
+      const placePolicies = await loadPlacePoliciesFromWorldModel(
+        parsed.data.stops.map((stop) => stop.placeId)
+      );
+      const result = applyItineraryPatch(parsed.data, patch, entityBinder, {
+        placePolicies,
+      });
       if (!result.ok) {
         return {
           error: result.error,

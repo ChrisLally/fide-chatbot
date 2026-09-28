@@ -1,5 +1,6 @@
 import { createDocumentHandler } from "@/lib/artifacts/server";
 import { materializeRoute } from "@/lib/itinerary/patch";
+import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
 import { itineraryWithRankings, publishJevScores } from "@/lib/itinerary/jev";
 import { serializeClientItinerary, stripJsonFences } from "@/lib/itinerary/schema";
 import type { UIMessageStreamWriter } from "ai";
@@ -24,7 +25,12 @@ export const itineraryDocumentHandler = createDocumentHandler<"itinerary">({
         "createDocument requires route.stops [{ placeId, nights }]. Do not generate a second itinerary. run_view places-search first."
       );
     }
-    const result = materializeRoute(title, route, entityBinder);
+    const placePolicies = await loadPlacePoliciesFromWorldModel(
+      route.stops.map((stop) => stop.placeId)
+    );
+    const result = materializeRoute(title, route, entityBinder, {
+      placePolicies,
+    });
     if (!result.ok) {
       throw new Error(result.error);
     }

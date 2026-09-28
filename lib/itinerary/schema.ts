@@ -96,6 +96,12 @@ export function fideIdHex(id: string): string | null {
   return FIDE_HEX_RE.test(body) ? body : null;
 }
 
+/** Normalize bare `0x…` / `did:fide:0x…` to the canonical did form. */
+export function normalizeDid(id: string): string {
+  const hex = fideIdHex(id);
+  return hex ? `${FIDE_DID_PREFIX}${hex}` : id.trim();
+}
+
 /** Entity type code after `0x` (e.g. `11` org, `31` concept, `40` place). */
 export function fideIdEntityType(id: string): string | null {
   const hex = fideIdHex(id);
@@ -267,6 +273,7 @@ export function matchesCatalinaPlaceSlug(
  * Stay nights from graph city-stay statements, keyed by place slug.
  * min is a hard verifier floor; rec/max are ranking hints for Jev.
  */
+/** Soft stay bands for JEV scoring only — hard enforcement uses live WM policy. */
 export const GRAPH_STAY_BAND_BY_PLACE_SLUG: Record<
   string,
   { min?: number; rec?: number; max?: number }

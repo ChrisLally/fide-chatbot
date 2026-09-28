@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   approveCurrentStage,
   calendarDayCount,
@@ -10,6 +11,59 @@ import {
 import { verifyItineraryStage } from "./stage-verifier.ts";
 import type { ClientItinerary } from "./schema.ts";
 import { upgradeToFideId } from "./schema.ts";
+import type { PlacePolicyMap } from "./place-policy.ts";
+
+const leiId = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";
+const cairnsId = upgradeToFideId(
+  "https://www.catalinaquest.ai/#place=cairns",
+  "destination"
+);
+const pdId = upgradeToFideId(
+  "https://www.catalinaquest.ai/#place=port-douglas",
+  "destination"
+);
+
+/** Injected WM policies — mirrors graph, not hardcoded verifier lists. */
+const testPolicies: PlacePolicyMap = new Map([
+  [
+    leiId,
+    {
+      fideId: leiId,
+      placeName: "Lady Elliot Island",
+      placeIri: "https://www.catalinaquest.ai/#place=lady-elliot-island",
+      stayMinNights: 3,
+      incompatibleOvernightFideIds: [],
+      incompatibleOvernightIris: [],
+      overnightRequiresBrief: false,
+    },
+  ],
+  [
+    cairnsId,
+    {
+      fideId: cairnsId,
+      placeName: "Cairns",
+      placeIri: "https://www.catalinaquest.ai/#place=cairns",
+      incompatibleOvernightFideIds: [pdId],
+      incompatibleOvernightIris: [
+        "https://www.catalinaquest.ai/#place=port-douglas",
+      ],
+      overnightRequiresBrief: false,
+    },
+  ],
+  [
+    pdId,
+    {
+      fideId: pdId,
+      placeName: "Port Douglas",
+      placeIri: "https://www.catalinaquest.ai/#place=port-douglas",
+      incompatibleOvernightFideIds: [cairnsId],
+      incompatibleOvernightIris: [
+        "https://www.catalinaquest.ai/#place=cairns",
+      ],
+      overnightRequiresBrief: false,
+    },
+  ],
+]);
 
 const sample: ClientItinerary = {
   title: "Test",
@@ -22,7 +76,7 @@ const sample: ClientItinerary = {
       nights: 3,
     },
     {
-      placeId: "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5",
+      placeId: leiId,
       placeName: "Lady Elliot Island",
       nights: 4,
     },
@@ -61,17 +115,17 @@ describe("itinerary stages", () => {
       ],
     };
     const route = projectToStage(withHotel, "route");
-    expect(route.stops[0].hotelId).toBeUndefined();
-    expect(route.days.every((d) => (d.blocks?.length ?? 0) === 0)).toBe(true);
-    expect(ensureWorkflow(route).stage).toBe("route");
+    assert.equal(route.stops[0].hotelId, undefined);
+    assert.equal(route.days.every((d) => (d.blocks?.length ?? 0) === 0), true);
+    assert.equal(ensureWorkflow(route).stage, "route");
   });
 
   it("approves route → stays", () => {
     const next = approveCurrentStage(sample);
-    expect(ensureWorkflow(next).stage).toBe("stays");
-    expect(ensureWorkflow(next).approved.route).toBeTruthy();
-    expect(ensureWorkflow(next).approved.stays).toBeUndefined();
-    expect(ensureWorkflow(next).approved.days).toBeUndefined();
+    assert.equal(ensureWorkflow(next).stage, "stays");
+    assert.ok(ensureWorkflow(next).approved.route);
+    assert.equal(ensureWorkflow(next).approved.stays, undefined);
+    assert.equal(ensureWorkflow(next).approved.days, undefined);
   });
 
   it("does not treat hotels+blocks as already complete when workflow is missing", () => {
@@ -103,47 +157,41 @@ describe("itinerary stages", () => {
         },
       ],
     };
-    expect(ensureWorkflow(filled).stage).toBe("route");
+    assert.equal(ensureWorkflow(filled).stage, "route");
     const next = approveCurrentStage(filled);
-    expect(ensureWorkflow(next).stage).toBe("stays");
+    assert.equal(ensureWorkflow(next).stage, "stays");
   });
 
   it("reopens route and clears later approvals", () => {
     let cur = approveCurrentStage(sample);
     cur = approveCurrentStage(cur);
-    expect(ensureWorkflow(cur).stage).toBe("days");
+    assert.equal(ensureWorkflow(cur).stage, "days");
     cur = reopenStage(cur, "route");
-    expect(ensureWorkflow(cur).stage).toBe("route");
-    expect(ensureWorkflow(cur).approved.stays).toBeUndefined();
+    assert.equal(ensureWorkflow(cur).stage, "route");
+    assert.equal(ensureWorkflow(cur).approved.stays, undefined);
   });
 
-  it("verifies cairns+pd hard rule", () => {
+  it("verifies cairns+pd hard rule from world-model policy", () => {
     const bad: ClientItinerary = {
       ...sample,
       stops: [
         {
-          placeId: upgradeToFideId(
-            "https://www.catalinaquest.ai/#place=cairns",
-            "destination"
-          ),
+          placeId: cairnsId,
           placeName: "Cairns",
           nights: 4,
         },
         {
-          placeId: upgradeToFideId(
-            "https://www.catalinaquest.ai/#place=port-douglas",
-            "destination"
-          ),
+          placeId: pdId,
           placeName: "Port Douglas",
           nights: 4,
         },
       ],
     };
-    const result = verifyItineraryStage(bad, "route");
-    expect(result.ok).toBe(false);
-    expect(result.errors.some((e) => /Cairns and Port Douglas/i.test(e))).toBe(
-      true
-    );
+    const result = verifyItineraryStage(bad, "route", {
+      placePolicies: testPolicies,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.errors.some((e) => /incompatible-overnight|overnight bases/i.test(e)), true);
   });
 
   it("does not treat a Lady Elliot label as LEI without the place id", () => {
@@ -160,18 +208,22 @@ describe("itinerary stages", () => {
         },
       ],
     };
-    const result = verifyItineraryStage(fake, "route");
-    expect(result.errors.some((e) => /stay-min/i.test(e))).toBe(false);
+    const result = verifyItineraryStage(fake, "route", {
+      placePolicies: testPolicies,
+    });
+    assert.equal(result.errors.some((e) => /stay-min/i.test(e)), false);
   });
 
-  it("verifies LEI min nights from the place id", () => {
+  it("verifies LEI min nights from world-model stay-min policy", () => {
     const short: ClientItinerary = {
       ...sample,
       stops: [{ ...sample.stops[1], nights: 2 }],
     };
-    const result = verifyItineraryStage(short, "route");
-    expect(result.ok).toBe(false);
-    expect(result.errors.some((e) => /stay-min/i.test(e))).toBe(true);
+    const result = verifyItineraryStage(short, "route", {
+      placePolicies: testPolicies,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.errors.some((e) => /stay-min/i.test(e)), true);
   });
 
   it("treats missing hotels as pending during stays, hard only on approve", () => {
@@ -180,16 +232,19 @@ describe("itinerary stages", () => {
       transfers: [],
       workflow: { stage: "stays", approved: { route: "x" } },
     };
-    const display = verifyItineraryStage(stays, "stays");
-    expect(display.ok).toBe(true);
-    expect(display.errors).toEqual([]);
-    expect(display.warnings.some((w) => /Hotels still needed/i.test(w))).toBe(
-      true
-    );
+    const display = verifyItineraryStage(stays, "stays", {
+      placePolicies: testPolicies,
+    });
+    assert.equal(display.ok, true);
+    assert.deepEqual(display.errors, []);
+    assert.equal(display.warnings.some((w) => /Hotels still needed/i.test(w)), true);
 
-    const gate = verifyItineraryStage(stays, "stays", { forApprove: true });
-    expect(gate.ok).toBe(false);
-    expect(gate.errors.some((e) => /Hotels still needed/i.test(e))).toBe(true);
+    const gate = verifyItineraryStage(stays, "stays", {
+      forApprove: true,
+      placePolicies: testPolicies,
+    });
+    assert.equal(gate.ok, false);
+    assert.equal(gate.errors.some((e) => /Hotels still needed/i.test(e)), true);
   });
 
   it("adds a departure morning after the last night", () => {
@@ -198,10 +253,10 @@ describe("itinerary stages", () => {
       { ...sample.stops[1], nights: 2, placeName: "Melbourne" },
     ];
     const days = syncDaysToNights(stops, []);
-    expect(calendarDayCount(stops)).toBe(5);
-    expect(days).toHaveLength(5);
-    expect(days.map((d) => d.stopIndex)).toEqual([0, 0, 1, 1, 1]);
-    expect(days[4]?.title).toBe("Depart Melbourne");
-    expect(days[4]?.dayNumber).toBe(5);
+    assert.equal(calendarDayCount(stops), 5);
+    assert.equal(days.length, 5);
+    assert.deepEqual(days.map((d) => d.stopIndex), [0, 0, 1, 1, 1]);
+    assert.equal(days[4]?.title, "Depart Melbourne");
+    assert.equal(days[4]?.dayNumber, 5);
   });
 });

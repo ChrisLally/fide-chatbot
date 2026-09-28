@@ -1,7 +1,9 @@
 export type ContextCategory =
   | "Hotels"
+  | "Restaurants"
   | "Activities"
   | "Attractions"
+  | "Events"
   | "Itineraries"
   | "Collections"
   | "Destinations"
@@ -9,8 +11,10 @@ export type ContextCategory =
 
 export type TravelContextKind =
   | "hotel"
+  | "restaurant"
   | "activity"
   | "attraction"
+  | "event"
   | "itinerary"
   | "collection"
   | "destination"
@@ -18,8 +22,10 @@ export type TravelContextKind =
 
 const slugToCategoryMap = {
   hotels: "Hotels",
+  restaurants: "Restaurants",
   activities: "Activities",
   attractions: "Attractions",
+  events: "Events",
   itineraries: "Itineraries",
   collections: "Collections",
   destinations: "Destinations",
@@ -29,8 +35,10 @@ const slugToCategoryMap = {
 const categoryToSlugMap: Record<ContextCategory, keyof typeof slugToCategoryMap> =
   {
     Hotels: "hotels",
+    Restaurants: "restaurants",
     Activities: "activities",
     Attractions: "attractions",
+    Events: "events",
     Itineraries: "itineraries",
     Collections: "collections",
     Destinations: "destinations",
@@ -39,8 +47,10 @@ const categoryToSlugMap: Record<ContextCategory, keyof typeof slugToCategoryMap>
 
 const travelKindToCategoryMap: Record<TravelContextKind, ContextCategory> = {
   hotel: "Hotels",
+  restaurant: "Restaurants",
   activity: "Activities",
   attraction: "Attractions",
+  event: "Events",
   itinerary: "Itineraries",
   collection: "Collections",
   destination: "Destinations",

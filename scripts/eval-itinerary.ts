@@ -38,6 +38,7 @@ import {
   materializeRoute,
   proposeRouteSchema,
 } from "../lib/itinerary/patch";
+import { loadPlacePoliciesFromWorldModel } from "../lib/itinerary/wm-place-policy";
 
 import { approveCurrentStage } from "../lib/itinerary/stages";
 
@@ -263,7 +264,12 @@ async function main() {
         });
         return { error: message };
       }
-      const result = materializeRoute(title, route, entityBinder);
+      const placePolicies = await loadPlacePoliciesFromWorldModel(
+        route.stops.map((s) => s.placeId)
+      );
+      const result = materializeRoute(title, route, entityBinder, {
+        placePolicies,
+      });
       if (!result.ok) {
         console.log(`✗ [${step}] createDocument ${result.error}`);
         trace.push({
@@ -320,7 +326,12 @@ async function main() {
         });
         return { error: message };
       }
-      const result = applyItineraryPatch(captured, patch, entityBinder);
+      const placePolicies = await loadPlacePoliciesFromWorldModel(
+        captured.stops.map((s) => s.placeId)
+      );
+      const result = applyItineraryPatch(captured, patch, entityBinder, {
+        placePolicies,
+      });
       if (!result.ok) {
         console.log(`✗ [${step}] patchItinerary ${result.error}`);
         trace.push({

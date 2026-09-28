@@ -13,16 +13,14 @@ function listBadgeTone(item: TravelContextItem) {
     const rating = String(item.raw.internal_rating ?? item.raw.public_rating ?? "");
     if (rating) return toneForRating(rating);
   }
-  if (item.kind === "activity") {
-    return "info" as const;
-  }
-  if (item.kind === "attraction") {
-    return "info" as const;
-  }
-  if (item.kind === "itinerary") {
-    return "info" as const;
-  }
-  if (item.kind === "collection") {
+  if (
+    item.kind === "restaurant" ||
+    item.kind === "activity" ||
+    item.kind === "attraction" ||
+    item.kind === "event" ||
+    item.kind === "itinerary" ||
+    item.kind === "collection"
+  ) {
     return "info" as const;
   }
   return "neutral" as const;
@@ -34,12 +32,20 @@ function listBadgeLabel(item: TravelContextItem) {
     if (item.raw.internal_rating) return `${item.raw.internal_rating} ★`;
     return String(item.tags[0] ?? "Hotel");
   }
+  if (item.kind === "restaurant") {
+    return String(
+      item.raw.product_category ?? item.tags[0] ?? "Restaurant"
+    );
+  }
   if (item.kind === "activity") {
     return String(item.raw.duration ?? item.raw.format ?? item.tags[0] ?? "Activity");
   }
   if (item.kind === "attraction") {
     const rank = item.raw.guide_rank ?? item.raw.position;
     return rank ? `#${rank}` : String(item.tags[0] ?? "Attraction");
+  }
+  if (item.kind === "event") {
+    return String(item.raw.dates ?? item.tags[0] ?? "Event");
   }
   if (item.kind === "itinerary") {
     return String(item.raw.duration ?? item.tags[0] ?? "Itinerary");

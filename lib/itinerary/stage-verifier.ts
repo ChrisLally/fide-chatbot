@@ -1,9 +1,13 @@
 import type { ClientItinerary } from "./schema";
 import {
-  graphStayMinNights,
   matchesCatalinaPlaceSlug,
+  normalizeDid,
 } from "./schema";
 import { ensureWorkflow, type ItineraryStage } from "./stages";
+import {
+  policyForStop,
+  type PlacePolicyMap,
+} from "./place-policy";
 
 export type StageVerifyResult = {
   ok: boolean;
@@ -18,13 +22,13 @@ export type StageVerifyOptions = {
    * right after advancing into stays/days before Taylor populates them.
    */
   forApprove?: boolean;
+  /**
+   * Live (or test-injected) place policy from the world model.
+   * Stay-min, incompatible overnights, and overnight-requires-brief come from here —
+   * not from hardcoded Catalina place lists.
+   */
+  placePolicies?: PlacePolicyMap;
 };
-
-function hasPlace(itinerary: ClientItinerary, slug: string): boolean {
-  return itinerary.stops.some((stop) =>
-    matchesCatalinaPlaceSlug(stop.placeId, slug)
-  );
-}
 
 function isLeiStop(placeId: string | undefined): boolean {
   return matchesCatalinaPlaceSlug(placeId, "lady-elliot-island");
@@ -43,13 +47,45 @@ function isCarTransportMode(mode: string | undefined): boolean {
   );
 }
 
+function stopMatchesIncompatible(
+  otherPlaceId: string,
+  otherPlaceName: string,
+  policy: NonNullable<ReturnType<typeof policyForStop>>
+): boolean {
+  const otherDid = normalizeDid(otherPlaceId);
+  if (
+    policy.incompatibleOvernightFideIds.some(
+      (id) => normalizeDid(id) === otherDid
+    )
+  ) {
+    return true;
+  }
+  const otherIri = otherPlaceId.includes("#place=")
+    ? otherPlaceId
+    : undefined;
+  if (
+    otherIri &&
+    policy.incompatibleOvernightIris.some((iri) => iri === otherIri)
+  ) {
+    return true;
+  }
+  // IRI fingerprint match via slug in incompatible iris
+  return policy.incompatibleOvernightIris.some((iri) => {
+    const slug = iri.split("#place=")[1];
+    return slug
+      ? matchesCatalinaPlaceSlug(otherPlaceId, slug) ||
+          otherPlaceName.toLowerCase().includes(slug.replace(/-/g, " "))
+      : false;
+  });
+}
+
 /** Deterministic must-pass checks for the active stage (no LLM). */
 export function verifyItineraryStage(
   itinerary: ClientItinerary,
   stage: ItineraryStage = ensureWorkflow(itinerary).stage,
   options: StageVerifyOptions = {}
 ): StageVerifyResult {
-  const { forApprove = false } = options;
+  const { forApprove = false, placePolicies } = options;
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -73,26 +109,54 @@ export function verifyItineraryStage(
     }
   }
 
-  if (hasPlace(itinerary, "cairns") && hasPlace(itinerary, "port-douglas")) {
-    errors.push(
-      "Hard rule: do not use both Cairns and Port Douglas as overnight bases — pick one gateway."
-    );
-  }
-  if (
-    hasPlace(itinerary, "townsville") ||
-    hasPlace(itinerary, "magnetic-island")
-  ) {
-    errors.push(
-      "Townsville / Magnetic Island are not standard first-timer sells unless the brief named them."
-    );
-  }
+  // World-model overnight policy (incompatible pairs, brief-gated sells, stay-min).
+  for (let i = 0; i < itinerary.stops.length; i++) {
+    const stop = itinerary.stops[i];
+    const policy = policyForStop(placePolicies, stop.placeId);
+    if (!policy) {
+      continue;
+    }
 
-  for (const stop of itinerary.stops) {
-    const min = graphStayMinNights(stop.placeId);
-    if (min != null && stop.nights < min) {
+    if (policy.overnightRequiresBrief) {
       errors.push(
-        `${stop.placeName} needs at least ${min} nights (graph stay-min); currently ${stop.nights}.`
+        `${stop.placeName} is not a standard first-timer overnight unless the brief named it (world-model overnight-requires-brief).`
       );
+    }
+
+    if (
+      policy.stayMinNights != null &&
+      stop.nights < policy.stayMinNights
+    ) {
+      errors.push(
+        `${stop.placeName} needs at least ${policy.stayMinNights} nights (graph stay-min); currently ${stop.nights}.`
+      );
+    }
+
+    for (let j = i + 1; j < itinerary.stops.length; j++) {
+      const other = itinerary.stops[j];
+      if (stopMatchesIncompatible(other.placeId, other.placeName, policy)) {
+        errors.push(
+          `Hard rule: do not use both ${stop.placeName} and ${other.placeName} as overnight bases — pick one (world-model incompatible-overnight-with).`
+        );
+      }
+      const otherPolicy = policyForStop(placePolicies, other.placeId);
+      if (
+        otherPolicy &&
+        stopMatchesIncompatible(stop.placeId, stop.placeName, otherPolicy)
+      ) {
+        // Avoid duplicate message if both edges exist
+        const dup = errors.some(
+          (e) =>
+            e.includes(stop.placeName) &&
+            e.includes(other.placeName) &&
+            /incompatible-overnight/i.test(e)
+        );
+        if (!dup) {
+          errors.push(
+            `Hard rule: do not use both ${other.placeName} and ${stop.placeName} as overnight bases — pick one (world-model incompatible-overnight-with).`
+          );
+        }
+      }
     }
   }
 

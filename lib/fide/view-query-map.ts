@@ -1,8 +1,8 @@
 const contextQueries = {
   hotels: "inventory/hotels-all",
   hotelDetail: "inventory/hotel",
-  venues: "inventory/venues-all",
-  venueDetail: "inventory/venue",
+  restaurants: "inventory/restaurants-all",
+  restaurantDetail: "inventory/restaurant",
   activities: "inventory/activities-all",
   activityDetail: "inventory/activity",
   attractions: "inventory/attractions-all",
@@ -16,6 +16,7 @@ const contextQueries = {
   collections: "inventory/collections-all",
   collectionDetail: "inventory/collection",
   events: "inventory/events-featured",
+  eventDetail: "inventory/event",
   sameAsLinks: "inventory/same-as-links",
   clusterMembers: "inventory/cluster-members",
   advisorLinks: "inventory/advisor-links-all",
@@ -26,9 +27,9 @@ export type ContextQueryKey = keyof typeof contextQueries;
 const viewToQuery: Record<string, ContextQueryKey> = {
   "inventory/hotels-all": "hotels",
   "inventory/hotel": "hotelDetail",
-  "inventory/venues-all": "venues",
-  "inventory/venue": "venueDetail",
-  "inventory/venues-by-city": "venues",
+  "inventory/restaurants-all": "restaurants",
+  "inventory/restaurant": "restaurantDetail",
+  "inventory/restaurants-by-city": "restaurants",
   "inventory/activities-all": "activities",
   "inventory/activity": "activityDetail",
   "inventory/attractions-all": "attractions",
@@ -42,6 +43,7 @@ const viewToQuery: Record<string, ContextQueryKey> = {
   "inventory/collections-all": "collections",
   "inventory/collection": "collectionDetail",
   "inventory/events-featured": "events",
+  "inventory/event": "eventDetail",
   "inventory/same-as-links": "sameAsLinks",
   "inventory/cluster-members": "clusterMembers",
   "inventory/advisor-links-all": "advisorLinks",
@@ -54,9 +56,10 @@ export function resolveContextQuery(viewKey: string): ContextQueryKey | null {
 export function isDetailView(viewKey: string): boolean {
   return (
     viewKey === "inventory/hotel" ||
-    viewKey === "inventory/venue" ||
+    viewKey === "inventory/restaurant" ||
     viewKey === "inventory/activity" ||
     viewKey === "inventory/attraction" ||
+    viewKey === "inventory/event" ||
     viewKey === "inventory/itinerary" ||
     viewKey === "inventory/place" ||
     viewKey === "inventory/transport-option" ||
@@ -68,9 +71,9 @@ export function getViewTitle(viewKey: string): string {
   const titles: Record<string, string> = {
     "inventory/hotels-all": "Hotels",
     "inventory/hotel": "Hotel",
-    "inventory/venues-all": "Venues",
-    "inventory/venue": "Venue",
-    "inventory/venues-by-city": "Venues by city",
+    "inventory/restaurants-all": "Restaurants",
+    "inventory/restaurant": "Restaurant",
+    "inventory/restaurants-by-city": "Restaurants by city",
     "inventory/activities-all": "Activities",
     "inventory/activity": "Activity",
     "inventory/attractions-all": "Attractions",
@@ -84,6 +87,7 @@ export function getViewTitle(viewKey: string): string {
     "inventory/collections-all": "Collections",
     "inventory/collection": "Collection",
     "inventory/events-featured": "Featured events",
+    "inventory/event": "Event",
     "inventory/same-as-links": "Same-as links",
     "inventory/cluster-members": "Cluster members",
     "inventory/advisor-links-all": "Advisor links",

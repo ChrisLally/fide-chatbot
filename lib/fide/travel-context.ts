@@ -356,6 +356,74 @@ export function normalizeActivityRow(
   };
 }
 
+export function normalizeRestaurantRow(
+  row: Record<string, unknown>,
+  index: number
+): TravelContextItem {
+  const name = readString(
+    row,
+    ["restaurant", "name", "title", "venue"],
+    `Restaurant ${index + 1}`
+  );
+  const id = readString(
+    row,
+    ["fide_id", "restaurant_iri", "venue_iri", "iri", "id", "key"],
+    `restaurant-${index}`
+  );
+  const region = readString(row, ["region_name", "region"], "Restaurants");
+  const category = readString(row, ["product_category", "category"]);
+
+  return {
+    kind: "restaurant",
+    id,
+    name,
+    filter: region,
+    subtitle:
+      [category, region].filter(Boolean).join(" · ") || "ATDW restaurant",
+    description: readString(
+      row,
+      ["advisor_note", "description", "address"],
+      "No description available yet."
+    ),
+    tags: [category, region].filter(Boolean).slice(0, 4),
+    raw: row,
+  };
+}
+
+export function normalizeEventRow(
+  row: Record<string, unknown>,
+  index: number
+): TravelContextItem {
+  const name = readString(
+    row,
+    ["event", "name", "title"],
+    `Event ${index + 1}`
+  );
+  const id = readString(
+    row,
+    ["fide_id", "event_iri", "iri", "id", "key"],
+    `event-${index}`
+  );
+  const region = readString(row, ["region_name", "region"], "Events");
+  const dates = readString(row, ["dates", "duration"]);
+
+  return {
+    kind: "event",
+    id,
+    name,
+    filter: region,
+    subtitle:
+      [dates, region].filter(Boolean).join(" · ") || "Featured event",
+    description: readString(
+      row,
+      ["advisor_note", "description"],
+      "No description available yet."
+    ),
+    tags: [dates, region].filter(Boolean).slice(0, 4),
+    raw: row,
+  };
+}
+
 export function normalizeDestinationRow(
   row: Record<string, unknown>,
   index: number
@@ -373,11 +441,15 @@ export function normalizeDestinationRow(
   const priority = readString(row, ["city_priority", "priority"]);
   const stay = readString(row, ["stay_recommended_nights"]);
   const landscapes = readString(row, ["landscapes"]);
-  const primaryLandscape = landscapes
-    ? landscapes.split(",")[0]?.trim()
-    : "";
+  const landscapeTags = landscapes
+    ? landscapes
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+    : [];
+  const primaryLandscape = landscapeTags[0] ?? "";
   const iata = readString(row, ["iata_code"]);
-  // Browse by landscape (or Airport when IATA-only) — never raw priority ints.
+  // Browse chip uses primary landscape; filter matching also checks all landscapes.
   const filter = primaryLandscape || (iata ? "Airport" : "Destination");
 
   return {
@@ -399,7 +471,10 @@ export function normalizeDestinationRow(
       ["advisor_note", "description"],
       "No description available yet."
     ),
-    tags: tagsFromRecord(row, ["landscapes", "iata_code", "vibe", "highlights"]),
+    tags:
+      landscapeTags.length > 0
+        ? landscapeTags
+        : tagsFromRecord(row, ["landscapes", "iata_code", "vibe", "highlights"]),
     raw: row,
   };
 }
@@ -502,11 +577,17 @@ export function normalizeContextRow(
   if (category === "Hotels") {
     return normalizeHotelRow(row, index);
   }
+  if (category === "Restaurants") {
+    return normalizeRestaurantRow(row, index);
+  }
   if (category === "Activities") {
     return normalizeActivityRow(row, index);
   }
   if (category === "Attractions") {
     return normalizeAttractionRow(row, index);
+  }
+  if (category === "Events") {
+    return normalizeEventRow(row, index);
   }
   if (category === "Itineraries") {
     return normalizeItineraryRow(row, index);
@@ -528,11 +609,17 @@ export function normalizeTravelRow(
   if (viewKey.startsWith("inventory/hotel")) {
     return normalizeHotelRow(row, index);
   }
+  if (viewKey.startsWith("inventory/restaurant")) {
+    return normalizeRestaurantRow(row, index);
+  }
   if (viewKey.startsWith("inventory/activit")) {
     return normalizeActivityRow(row, index);
   }
   if (viewKey.startsWith("inventory/attraction")) {
     return normalizeAttractionRow(row, index);
+  }
+  if (viewKey.startsWith("inventory/event")) {
+    return normalizeEventRow(row, index);
   }
   if (viewKey.startsWith("inventory/itinerar")) {
     return normalizeItineraryRow(row, index);

@@ -50,7 +50,7 @@ export function normalizeEntityName(name: string): string {
 
 function kindFromViewKey(viewKey: string): PeekEntityKind | null {
   const key = viewKey.toLowerCase();
-  if (key.includes("hotel") || key.includes("venue")) return "hotel";
+  if (key.includes("hotel") || key.includes("restaurant") || key.includes("venue")) return "hotel";
   if (key.includes("activity")) return "activity";
   if (key.includes("attraction")) return "attraction";
   if (key.includes("place") || key.includes("destination")) return "destination";

@@ -83,8 +83,10 @@ type ContextQueryResponse = {
 
 const contextListQueries = {
   Hotels: "hotels",
+  Restaurants: "restaurants",
   Activities: "activities",
   Attractions: "attractions",
+  Events: "events",
   Itineraries: "itineraries",
   Collections: "collections",
   Destinations: "destinations",
@@ -93,6 +95,7 @@ const contextListQueries = {
 
 const contextDetailQueries = {
   Hotels: { paramName: "fideId", legacyIriParam: "hotel_iri", query: "hotelDetail" },
+  Restaurants: { paramName: "fideId", legacyIriParam: "restaurant_iri", query: "restaurantDetail" },
   Activities: {
     paramName: "fideId",
     legacyIriParam: "activity_iri",
@@ -103,6 +106,7 @@ const contextDetailQueries = {
     legacyIriParam: "attraction_iri",
     query: "attractionDetail",
   },
+  Events: { paramName: "fideId", legacyIriParam: "event_iri", query: "eventDetail" },
   Itineraries: { paramName: "itinerary_iri", query: "itineraryDetail" },
   Collections: { paramName: "collection_iri", query: "collectionDetail" },
   Destinations: {
@@ -567,12 +571,20 @@ function PureArtifact({
       description: "AU inventory stays with addresses and booking links.",
     },
     {
+      label: "Restaurants",
+      description: "Tourism Australia ATDW restaurants by city.",
+    },
+    {
       label: "Activities",
       description: "Bookable tours and experiences with affiliate links.",
     },
     {
       label: "Attractions",
       description: "Top-10 things to do from Catalina destination guides.",
+    },
+    {
+      label: "Events",
+      description: "Featured Tourism Australia calendar events.",
     },
     {
       label: "Itineraries",
@@ -663,12 +675,35 @@ function PureArtifact({
           },
         } satisfies TravelContextItem
       : null;
-  const contextFilters = [
-    "All",
-    ...Array.from(new Set(contextItems.map((item) => item.filter))).filter(
-      Boolean
-    ),
-  ];
+  const contextFilters = (() => {
+    if (activeContextCategory === "Destinations") {
+      const landscapes = new Set<string>();
+      for (const item of contextItems) {
+        const raw = readString(item.raw ?? {}, ["landscapes"]);
+        if (raw) {
+          for (const part of raw.split(",")) {
+            const landscape = part.trim();
+            if (landscape) {
+              landscapes.add(landscape);
+            }
+          }
+        } else if (item.filter) {
+          landscapes.add(item.filter);
+        }
+      }
+      return [
+        "All",
+        ...Array.from(landscapes).sort((a, b) => a.localeCompare(b)),
+      ];
+    }
+
+    return [
+      "All",
+      ...Array.from(new Set(contextItems.map((item) => item.filter))).filter(
+        Boolean
+      ),
+    ];
+  })();
   const transportFromOptions =
     contextCategory === "Transportation"
       ? Array.from(
@@ -729,7 +764,23 @@ function PureArtifact({
           }
           return true;
         }
-        return contextFilter === "All" || item.filter === contextFilter;
+        if (contextFilter === "All") {
+          return true;
+        }
+        if (item.filter === contextFilter) {
+          return true;
+        }
+        // Destinations can have multiple landscapes; match any, not just primary.
+        if (contextCategory === "Destinations") {
+          const landscapes = readString(item.raw ?? {}, ["landscapes"]);
+          if (landscapes) {
+            return landscapes
+              .split(",")
+              .map((part) => part.trim())
+              .includes(contextFilter);
+          }
+        }
+        return false;
       })
     : [];
 

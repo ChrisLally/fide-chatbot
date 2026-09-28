@@ -50,15 +50,48 @@ export function DestinationCard({
   const priority = readString(raw, ["city_priority"]);
   const landscapes = readString(raw, ["landscapes"]);
   const iata = readString(raw, ["iata_code"]);
+  const sellRole = readString(raw, ["sell_role"]);
+  const accessNote = readString(raw, ["access_note"]);
+  const incompatible = readString(raw, [
+    "incompatible_overnights",
+    "incompatible_overnight_iris",
+  ]);
+  const requiresBriefRaw = readString(raw, ["overnight_requires_brief"]);
+  const requiresBrief =
+    requiresBriefRaw === "true" ||
+    requiresBriefRaw === "1" ||
+    requiresBriefRaw.toLowerCase() === "yes";
+  const priceTier = readString(raw, ["price_tier"]);
 
   const fields = [
     { label: "Region", value: region },
     { label: "Vibe", value: vibe },
     { label: "Recommended nights", value: recommended },
     { label: "Stay range", value: stayRange },
+    { label: "Min nights (enforced)", value: stayMin },
     { label: "Priority", value: priority },
+    { label: "Price tier", value: priceTier },
     { label: "Landscapes", value: landscapes },
     { label: "IATA", value: iata },
+  ].filter((f) => Boolean(f.value));
+
+  const policyFields = [
+    { label: "Sell role", value: sellRole },
+    {
+      label: "Do not overnight with",
+      value: incompatible
+        ? incompatible
+            .split("|")
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join(", ")
+        : "",
+    },
+    {
+      label: "Overnight requires brief",
+      value: requiresBrief ? "Yes — only if the client named it" : "",
+    },
+    { label: "Access", value: accessNote },
   ].filter((f) => Boolean(f.value));
 
   return (
@@ -77,6 +110,13 @@ export function DestinationCard({
       <div className="flex flex-wrap items-center gap-1.5">
         {region && <StatusBadge label={region} tone="info" />}
         {vibe && <StatusBadge label={vibe} tone="neutral" />}
+        {sellRole ? <StatusBadge label={sellRole} tone="neutral" /> : null}
+        {requiresBrief ? (
+          <StatusBadge label="Brief-gated overnight" tone="warning" />
+        ) : null}
+        {incompatible ? (
+          <StatusBadge label="Has overnight conflicts" tone="warning" />
+        ) : null}
         {recommended ? (
           <StatusBadge label={`${recommended} nights`} tone="neutral" />
         ) : null}
@@ -89,6 +129,15 @@ export function DestinationCard({
       )}
 
       {fields.length > 0 && <FieldGrid fields={fields} />}
+
+      {policyFields.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Advisor policy
+          </div>
+          <FieldGrid fields={policyFields} />
+        </div>
+      ) : null}
 
       {advisorLinks.length > 0 ? (
         <div className="flex flex-col gap-1.5">
