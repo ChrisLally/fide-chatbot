@@ -69,6 +69,8 @@ const nextConfig: NextConfig = {
     appNewScrollHandler: true,
     inlineCss: true,
     turbopackFileSystemCacheForDev: true,
+    // Feedback uploads (screenshots) go through proxy.ts; default 10MB truncates FormData.
+    proxyClientMaxBodySize: "25mb",
   },
 };
 

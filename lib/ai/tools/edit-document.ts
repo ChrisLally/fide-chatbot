@@ -42,7 +42,7 @@ export const editDocument = ({ session, dataStream }: EditDocumentProps) =>
       if (document.kind === "itinerary") {
         return {
           error:
-            "editDocument cannot patch itinerary JSON. Use patchItinerary (setStopHotel, setDayBlocks, setStopNights, …).",
+            "editDocument cannot patch itinerary JSON. Use patchItinerary with patches: [{ op, … }].",
         };
       }
 

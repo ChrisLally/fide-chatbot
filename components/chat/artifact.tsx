@@ -664,7 +664,9 @@ function PureArtifact({
           description: selectedDetailRow
             ? readString(
                 selectedDetailRow,
-                ["advisor_note", "description", "summary"],
+                activeContextCategory === "Destinations"
+                  ? ["description", "summary"]
+                  : ["advisor_note", "description", "summary"],
                 selectedContextItem.description
               )
             : selectedContextItem.description,

@@ -136,3 +136,13 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+/** Anonymous comments on Fide entities (keyed by did:fide:0x…). */
+export const entityComment = pgTable("EntityComment", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  entityId: text("entityId").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+export type EntityComment = InferSelectModel<typeof entityComment>;

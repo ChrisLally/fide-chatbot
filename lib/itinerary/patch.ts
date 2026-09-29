@@ -12,7 +12,12 @@ import {
   type PeekEntityKind,
 } from "./schema";
 import { verifyItineraryStage } from "./stage-verifier";
-import type { PlacePolicyMap } from "./place-policy";
+import {
+  policyForStop,
+  stayCeiling,
+  stayFloor,
+  type PlacePolicyMap,
+} from "./place-policy";
 import {
   calendarDayCount,
   ensureWorkflow,
@@ -324,7 +329,7 @@ function verifyHard(
     (error) =>
       /incompatible-overnight|overnight bases/i.test(error) ||
       /overnight-requires-brief|standard first-timer overnight/i.test(error) ||
-      /stay-min/i.test(error) ||
+      /stay-min|stay-max/i.test(error) ||
       /exceeds 3\.5h/i.test(error)
   );
   if (blockers.length > 0) {
@@ -334,6 +339,42 @@ function verifyHard(
 }
 
 export function applyItineraryPatch(
+  previous: ClientItinerary,
+  patch: ItineraryPatch,
+  binder?: TurnEntityBinder,
+  options: PatchVerifyOptions = {}
+): PatchResult {
+  return applyItineraryPatches(previous, [patch], binder, options);
+}
+
+/** Apply ops in order on one itinerary snapshot (avoids parallel lost-updates). */
+export function applyItineraryPatches(
+  previous: ClientItinerary,
+  patches: ItineraryPatch[],
+  binder?: TurnEntityBinder,
+  options: PatchVerifyOptions = {}
+): PatchResult {
+  if (patches.length === 0) {
+    return { ok: false, error: "patches must contain at least one op." };
+  }
+  let current = previous;
+  const omitted: string[] = [];
+  for (let i = 0; i < patches.length; i++) {
+    const result = applyOneItineraryPatch(current, patches[i], binder, options);
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: `patches[${i}] (${patches[i].op}): ${result.error}`,
+        omitted: [...omitted, ...(result.omitted ?? [])],
+      };
+    }
+    current = result.itinerary;
+    omitted.push(...result.omitted);
+  }
+  return { ok: true, itinerary: current, omitted };
+}
+
+function applyOneItineraryPatch(
   previous: ClientItinerary,
   patch: ItineraryPatch,
   binder?: TurnEntityBinder,
@@ -384,7 +425,7 @@ export function applyItineraryPatch(
       };
       itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
       itinerary.durationDays = nightsSum(itinerary.stops);
-      return { ok: true, itinerary, omitted: [] };
+      return verifyHard(itinerary, options) ?? { ok: true, itinerary, omitted: [] };
     }
     case "addStop": {
       if (patch.afterIndex < -1 || patch.afterIndex >= itinerary.stops.length) {
@@ -556,6 +597,7 @@ export function applyItineraryPatch(
   }
 }
 
+
 export function materializeRoute(
   title: string,
   draft: ProposeRoute,
@@ -568,7 +610,8 @@ export function materializeRoute(
       placeName: stop.placeName?.trim() || "Place",
       nights: stop.nights,
     })),
-    claimedTripDays(title, draft)
+    claimedTripDays(title, draft),
+    options.placePolicies
   );
   if (!fitted.ok) {
     return { ok: false, error: fitted.error };
@@ -601,74 +644,169 @@ export function materializeRoute(
   return verifyHard(next, options) ?? { ok: true, itinerary: next, omitted: bound.omitted };
 }
 
-/** N-day trip → N−1 hotel nights so the last calendar card is departure morning. */
+/**
+ * Fit overnight totals to an N-day brief (N−1 nights).
+ * Prefer graph recommended nights; never autofit outside graph min–max when known.
+ */
 export function fitStopsToTripLength(
   stops: ClientItineraryStop[],
-  claimedDays: number | null
+  claimedDays: number | null,
+  placePolicies?: PlacePolicyMap
 ): { ok: true; stops: ClientItineraryStop[] } | { ok: false; error: string } {
-  const next = stops.map((stop) => ({ ...stop }));
+  const next = stops.map((stop) => {
+    const policy = policyForStop(placePolicies, stop.placeId);
+    const floor = stayFloor(policy);
+    const ceiling = stayCeiling(policy);
+    const nights = Math.min(ceiling, Math.max(floor, stop.nights));
+    return { ...stop, nights };
+  });
+
   if (claimedDays == null) {
     return { ok: true, stops: next };
   }
 
-  const nights = overnightTotal(next);
   const targetNights = Math.max(1, claimedDays - 1);
-  const delta = targetNights - nights;
   const maxAutofit = 4;
+
+  for (const stop of next) {
+    const policy = policyForStop(placePolicies, stop.placeId);
+    const floor = stayFloor(policy);
+    const ceiling = stayCeiling(policy);
+    if (stop.nights < floor) stop.nights = floor;
+    if (stop.nights > ceiling) stop.nights = ceiling;
+  }
+
+  let nights = overnightTotal(next);
+  let delta = targetNights - nights;
 
   if (delta === 0) {
     return { ok: true, stops: next };
   }
 
   if (delta > 0 && delta <= maxAutofit) {
-    addNightsFromEnd(next, delta);
-    return { ok: true, stops: next };
+    const added = addNightsWithinBands(next, delta, placePolicies);
+    if (added === delta) {
+      return { ok: true, stops: next };
+    }
+    delta = targetNights - overnightTotal(next);
   }
 
   if (delta < 0 && delta >= -maxAutofit) {
-    const removed = removeNightsFromEnd(next, -delta);
-    if (removed === -delta) {
+    const removed = removeNightsWithinBands(next, -delta, placePolicies);
+    if (removed === -delta || overnightTotal(next) === targetNights) {
       return { ok: true, stops: next };
     }
+    delta = targetNights - overnightTotal(next);
+  }
+
+  nights = overnightTotal(next);
+  if (nights === targetNights) {
+    return { ok: true, stops: next };
   }
 
   if (nights < targetNights) {
     return {
       ok: false,
-      error: `This is a ${claimedDays}-day brief. Allocate ${targetNights} overnight nights across real stops now (you passed ${nights}). Do not add a filler city and do not ask which destination should soak the rest.`,
+      error: `This is a ${claimedDays}-day brief (${targetNights} nights). Stops total ${nights} after respecting graph stay-min/max — add a destination or lengthen a stop that still has headroom under stay-max. Do not exceed any place's stay-max.`,
     };
   }
 
   return {
     ok: false,
-    error: `This is a ${claimedDays}-day brief (${targetNights} nights + departure morning). You passed ${nights} nights — trim a stop rather than stretching the calendar.`,
+    error: `This is a ${claimedDays}-day brief (${targetNights} nights + departure morning). Stops total ${nights} after respecting graph stay-min — trim a stop or shorten one still above stay-min rather than going below min.`,
   };
 }
 
-function addNightsFromEnd(stops: ClientItineraryStop[], extra: number): void {
-  let index = stops.length - 1;
+function addNightsWithinBands(
+  stops: ClientItineraryStop[],
+  extra: number,
+  placePolicies?: PlacePolicyMap
+): number {
+  let remaining = extra;
+  let cursor = stops.length - 1;
   let guard = 0;
-  while (extra > 0 && guard < 80) {
-    if (stops[index].nights < 6) {
-      stops[index].nights += 1;
-      extra -= 1;
-    }
-    index = (index - 1 + stops.length) % stops.length;
+  while (remaining > 0 && guard < 80) {
     guard += 1;
+
+    let best = -1;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let k = 0; k < stops.length; k++) {
+      const i = (cursor - k + stops.length) % stops.length;
+      const policy = policyForStop(placePolicies, stops[i].placeId);
+      const ceiling = stayCeiling(policy);
+      if (stops[i].nights >= ceiling) continue;
+      const rec = policy?.stayRecommendedNights;
+      if (rec != null && stops[i].nights < rec) {
+        const score = (rec - stops[i].nights) * 100 - k;
+        if (score > bestScore) {
+          bestScore = score;
+          best = i;
+        }
+      }
+    }
+
+    if (best < 0) {
+      for (let k = 0; k < stops.length; k++) {
+        const i = (cursor - k + stops.length) % stops.length;
+        const policy = policyForStop(placePolicies, stops[i].placeId);
+        if (stops[i].nights < stayCeiling(policy)) {
+          best = i;
+          break;
+        }
+      }
+    }
+
+    if (best < 0) break;
+    stops[best].nights += 1;
+    remaining -= 1;
+    cursor = (best - 1 + stops.length) % stops.length;
   }
+  return extra - remaining;
 }
 
-function removeNightsFromEnd(stops: ClientItineraryStop[], remove: number): number {
-  let index = stops.length - 1;
+function removeNightsWithinBands(
+  stops: ClientItineraryStop[],
+  remove: number,
+  placePolicies?: PlacePolicyMap
+): number {
   let removed = 0;
+  let cursor = stops.length - 1;
   let guard = 0;
   while (removed < remove && guard < 80) {
-    if (stops[index].nights > 1) {
-      stops[index].nights -= 1;
-      removed += 1;
-    }
-    index = (index - 1 + stops.length) % stops.length;
     guard += 1;
+
+    let best = -1;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let k = 0; k < stops.length; k++) {
+      const i = (cursor - k + stops.length) % stops.length;
+      const policy = policyForStop(placePolicies, stops[i].placeId);
+      const floor = stayFloor(policy);
+      if (stops[i].nights <= floor) continue;
+      const rec = policy?.stayRecommendedNights;
+      if (rec != null && stops[i].nights > rec) {
+        const score = (stops[i].nights - rec) * 100 - k;
+        if (score > bestScore) {
+          bestScore = score;
+          best = i;
+        }
+      }
+    }
+
+    if (best < 0) {
+      for (let k = 0; k < stops.length; k++) {
+        const i = (cursor - k + stops.length) % stops.length;
+        const policy = policyForStop(placePolicies, stops[i].placeId);
+        if (stops[i].nights > stayFloor(policy)) {
+          best = i;
+          break;
+        }
+      }
+    }
+
+    if (best < 0) break;
+    stops[best].nights -= 1;
+    removed += 1;
+    cursor = (best - 1 + stops.length) % stops.length;
   }
   return removed;
 }

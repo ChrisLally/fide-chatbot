@@ -62,6 +62,15 @@ export function DestinationCard({
     requiresBriefRaw === "1" ||
     requiresBriefRaw.toLowerCase() === "yes";
   const priceTier = readString(raw, ["price_tier"]);
+  const goodForVisit = readString(raw, ["good_for_visit"]);
+  const goodForTravelers = readString(raw, ["good_for_travelers"]);
+  const goodForInterests = readString(raw, ["good_for_interests"]);
+  const goodForAccess = readString(raw, ["good_for_access"]);
+  const badForVisit = readString(raw, ["bad_for_visit"]);
+  const badForTravelers = readString(raw, ["bad_for_travelers"]);
+  const badForInterests = readString(raw, ["bad_for_interests"]);
+  const badForAccess = readString(raw, ["bad_for_access"]);
+  const isFirstTimeFit = /first-time/i.test(goodForVisit);
 
   const fields = [
     { label: "Region", value: region },
@@ -69,10 +78,24 @@ export function DestinationCard({
     { label: "Recommended nights", value: recommended },
     { label: "Stay range", value: stayRange },
     { label: "Min nights (enforced)", value: stayMin },
+    { label: "Max nights (enforced)", value: stayMax },
     { label: "Priority", value: priority },
     { label: "Price tier", value: priceTier },
     { label: "Landscapes", value: landscapes },
     { label: "IATA", value: iata },
+  ].filter((f) => Boolean(f.value));
+
+  const fitFields = [
+    { label: "Visit fit", value: goodForVisit },
+    { label: "Travelers", value: goodForTravelers },
+    { label: "Interests", value: goodForInterests },
+    { label: "Access", value: goodForAccess },
+    {
+      label: "Less suitable",
+      value: [badForVisit, badForTravelers, badForInterests, badForAccess]
+        .filter(Boolean)
+        .join(" · "),
+    },
   ].filter((f) => Boolean(f.value));
 
   const policyFields = [
@@ -91,7 +114,7 @@ export function DestinationCard({
       label: "Overnight requires brief",
       value: requiresBrief ? "Yes — only if the client named it" : "",
     },
-    { label: "Access", value: accessNote },
+    { label: "Access note", value: accessNote },
   ].filter((f) => Boolean(f.value));
 
   return (
@@ -110,6 +133,9 @@ export function DestinationCard({
       <div className="flex flex-wrap items-center gap-1.5">
         {region && <StatusBadge label={region} tone="info" />}
         {vibe && <StatusBadge label={vibe} tone="neutral" />}
+        {isFirstTimeFit ? (
+          <StatusBadge label="First-time visitor" tone="info" />
+        ) : null}
         {sellRole ? <StatusBadge label={sellRole} tone="neutral" /> : null}
         {requiresBrief ? (
           <StatusBadge label="Brief-gated overnight" tone="warning" />
@@ -129,6 +155,15 @@ export function DestinationCard({
       )}
 
       {fields.length > 0 && <FieldGrid fields={fields} />}
+
+      {fitFields.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Fit
+          </div>
+          <FieldGrid fields={fitFields} />
+        </div>
+      ) : null}
 
       {policyFields.length > 0 ? (
         <div className="flex flex-col gap-1.5">

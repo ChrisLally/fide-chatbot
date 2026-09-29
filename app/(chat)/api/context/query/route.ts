@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
+import { loadCommentsForPayload } from "@/lib/fide/entity-comments-enrich";
 import { createFideMcpClient } from "@/lib/fide/mcp-client";
 import { ChatbotError } from "@/lib/errors";
 
@@ -196,12 +197,16 @@ export async function POST(request: Request) {
       },
     });
 
+    const parsed = parseMcpJsonText(result);
+    const entityComments = await loadCommentsForPayload(parsed);
+
     return Response.json({
       ok: true,
       query: input.query,
       queryKey,
       worldModelKey,
-      result: parseMcpJsonText(result),
+      result: parsed,
+      entityComments,
     });
   } catch (error) {
     const message =

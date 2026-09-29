@@ -85,7 +85,9 @@ export function rowsFromRunViewOutput(output: unknown): Record<string, unknown>[
 }
 
 function SingleTravelCard({ item }: { item: TravelContextItem }) {
-  return <EntityDetail item={item} showOpenAction />;
+  return (
+    <EntityDetail item={item} showComments={false} showOpenAction />
+  );
 }
 
 export function RunViewCard({

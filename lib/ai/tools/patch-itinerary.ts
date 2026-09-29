@@ -2,8 +2,9 @@ import { tool, type UIMessageStreamWriter } from "ai";
 import type { Session } from "next-auth";
 import { z } from "zod";
 import { getDocumentById, saveDocument } from "@/lib/db/queries";
+import { buildItineraryToolStatus } from "@/lib/itinerary/agent-status";
 import {
-  applyItineraryPatch,
+  applyItineraryPatches,
   itineraryPatchSchema,
 } from "@/lib/itinerary/patch";
 import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
@@ -27,12 +28,17 @@ export const patchItinerary = ({
 }: PatchItineraryProps) =>
   tool({
     description:
-      "Apply one typed patch to the existing itinerary. Hotels only after Approve Route (stage stays). Day blocks only after Approve Stays (stage days). Pass did:fide:0x… ids, not titles. Never call this to finish the whole trip in one turn.",
+      "Apply a batch of typed itinerary ops in one call (`patches: [...]`, even for a single op). Ops run in order on one document snapshot — never fire parallel patchItinerary calls. Hotels only after Approve Route; day blocks only after Approve Stays. Pass did:fide:0x… ids. Always read returned `status` before your next message.",
     inputSchema: z.object({
       id: z.string().describe("The itinerary artifact id"),
-      patch: itineraryPatchSchema,
+      patches: z
+        .array(itineraryPatchSchema)
+        .min(1)
+        .describe(
+          "Ordered ops to apply in one transaction. Example stays: [{op:proposeStay,stopIndex:0,hotelId},{op:proposeStay,stopIndex:1,hotelId},…]"
+        ),
     }),
-    execute: async ({ id, patch }) => {
+    execute: async ({ id, patches }) => {
       const document = await getDocumentById({ id });
       if (!document) {
         return { error: "Document not found" };
@@ -51,17 +57,27 @@ export const patchItinerary = ({
         return { error: `Cannot patch invalid itinerary JSON: ${parsed.error}` };
       }
 
-      const placePolicies = await loadPlacePoliciesFromWorldModel(
-        parsed.data.stops.map((stop) => stop.placeId)
+      const placeIds = [
+        ...parsed.data.stops.map((stop) => stop.placeId),
+        ...patches.flatMap((patch) =>
+          "placeId" in patch && typeof patch.placeId === "string"
+            ? [patch.placeId]
+            : []
+        ),
+      ];
+      const placePolicies = await loadPlacePoliciesFromWorldModel(placeIds);
+      const result = applyItineraryPatches(
+        parsed.data,
+        patches,
+        entityBinder,
+        { placePolicies }
       );
-      const result = applyItineraryPatch(parsed.data, patch, entityBinder, {
-        placePolicies,
-      });
       if (!result.ok) {
         return {
           error: result.error,
           omitted: result.omitted,
-          hint: "Copy did:fide:0x… from run_view and retry this op. Do not send titles as ids.",
+          hint: "Copy did:fide:0x… from run_view and retry. Use one patches array — do not call patchItinerary in parallel.",
+          status: buildItineraryToolStatus(parsed.data, placePolicies),
         };
       }
 
@@ -94,21 +110,16 @@ export const patchItinerary = ({
       });
       dataStream.write({ type: "data-finish", data: null, transient: true });
 
+      const status = buildItineraryToolStatus(next, placePolicies);
+
       return {
         id,
         title: result.itinerary.title,
         kind: "itinerary" as const,
-        op: patch.op,
+        ops: patches.map((patch) => patch.op),
         omitted: result.omitted,
-        stop:
-          patch.op === "setStopHotel" || patch.op === "proposeStay"
-            ? {
-                stopIndex: patch.stopIndex,
-                hotelId: result.itinerary.stops[patch.stopIndex]?.hotelId,
-                hotelName: result.itinerary.stops[patch.stopIndex]?.hotelName,
-              }
-            : undefined,
-        content: `Itinerary patched (${patch.op}). Do not resend the full JSON.`,
+        status,
+        content: `Itinerary patched (${patches.length} op(s): ${patches.map((p) => p.op).join(", ")}). Read status.nextAction. Do not resend the full JSON.`,
       };
     },
   });

@@ -45,7 +45,7 @@ export const updateDocument = ({
       if (document.kind === "itinerary") {
         return {
           error:
-            "updateDocument is disabled for itineraries. Use patchItinerary with one typed op (setStopHotel, proposeDay, setStopNights, …).",
+            "updateDocument is disabled for itineraries. Use patchItinerary with patches: [{ op, … }] (batch, even for one change).",
         };
       }
 

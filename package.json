@@ -17,8 +17,13 @@
     "db:check": "drizzle-kit check",
     "db:up": "drizzle-kit up",
     "test": "export PLAYWRIGHT=True && pnpm exec playwright test",
-    "test:unit": "tsx --test lib/itinerary/schema.test.ts lib/itinerary/entity-binder.test.ts lib/itinerary/stages.test.ts",
-    "eval:itinerary": "tsx scripts/eval-itinerary.ts"
+    "test:unit": "tsx --test lib/**/*.test.ts",
+    "test:wm": "bash scripts/test-wm.sh",
+    "eval:itinerary": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts",
+    "eval:stage": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts",
+    "eval:route": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts --route",
+    "eval:stays": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts --stays",
+    "eval:days": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts --days"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^5.0.10",

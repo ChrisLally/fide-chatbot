@@ -5,8 +5,12 @@ import {
   creatableArtifactKinds,
   documentHandlersByArtifactKind,
 } from "@/lib/artifacts/server";
+import { getDocumentById } from "@/lib/db/queries";
+import { buildItineraryToolStatus } from "@/lib/itinerary/agent-status";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
 import { proposeRouteSchema } from "@/lib/itinerary/patch";
+import { parseClientItinerary } from "@/lib/itinerary/schema";
+import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
 import type { ChatMessage } from "@/lib/types";
 import { generateUUID } from "@/lib/utils";
 
@@ -25,7 +29,7 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass route.stops covering the full requested trip length (placeId + nights). No hotels, no activities, no leftover TBD nights. After create, STOP and wait for Approve Route.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass route.stops covering the full requested trip length (placeId + nights). No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, approveButtonClickable, errors, stops). If Approve is clickable, STOP and wait; if not, fix before stopping.",
     inputSchema: z.object({
       title: z.string().describe("The title of the itinerary"),
       kind: z
@@ -34,7 +38,7 @@ export const createDocument = ({
       route: proposeRouteSchema
         .optional()
         .describe(
-          "Route slice: stops with placeId (did:fide:0x…) + nights, optional transfers.",
+          "Route slice: stops with placeId (did:fide:0x…) + nights, optional transfers."
         ),
     }),
     execute: async ({ title, kind, route }) => {
@@ -95,13 +99,24 @@ export const createDocument = ({
 
       dataStream.write({ type: "data-finish", data: null, transient: true });
 
+      const saved = await getDocumentById({ id });
+      const parsed = parseClientItinerary(saved?.content ?? "");
+      let status = undefined;
+      if (parsed.ok) {
+        const placePolicies = await loadPlacePoliciesFromWorldModel(
+          parsed.data.stops.map((stop) => stop.placeId)
+        );
+        status = buildItineraryToolStatus(parsed.data, placePolicies);
+      }
+
       return {
         id,
         title,
         kind,
-        stage: "route",
+        status,
         content:
-          "Route itinerary is visible. STOP. Wait for the human to click Approve Route. Do not createDocument again. Do not patchItinerary hotels or days until that approve.",
+          status?.nextAction ??
+          "Route itinerary is visible. Read status if present. Do not createDocument again.",
       };
     },
   });

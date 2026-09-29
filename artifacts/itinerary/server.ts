@@ -52,7 +52,7 @@ export const itineraryDocumentHandler = createDocumentHandler<"itinerary">({
   },
   onUpdateDocument: async () => {
     throw new Error(
-      "updateDocument is disabled for itineraries. Use patchItinerary with a single typed op."
+      "updateDocument is disabled for itineraries. Use patchItinerary with patches: [{ op, … }]."
     );
   },
 });

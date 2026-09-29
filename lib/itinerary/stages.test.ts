@@ -32,6 +32,8 @@ const testPolicies: PlacePolicyMap = new Map([
       placeName: "Lady Elliot Island",
       placeIri: "https://www.catalinaquest.ai/#place=lady-elliot-island",
       stayMinNights: 3,
+      stayRecommendedNights: 3,
+      stayMaxNights: 5,
       incompatibleOvernightFideIds: [],
       incompatibleOvernightIris: [],
       overnightRequiresBrief: false,
@@ -43,6 +45,9 @@ const testPolicies: PlacePolicyMap = new Map([
       fideId: cairnsId,
       placeName: "Cairns",
       placeIri: "https://www.catalinaquest.ai/#place=cairns",
+      stayMinNights: 2,
+      stayRecommendedNights: 3,
+      stayMaxNights: 4,
       incompatibleOvernightFideIds: [pdId],
       incompatibleOvernightIris: [
         "https://www.catalinaquest.ai/#place=port-douglas",
@@ -56,6 +61,9 @@ const testPolicies: PlacePolicyMap = new Map([
       fideId: pdId,
       placeName: "Port Douglas",
       placeIri: "https://www.catalinaquest.ai/#place=port-douglas",
+      stayMinNights: 3,
+      stayRecommendedNights: 4,
+      stayMaxNights: 5,
       incompatibleOvernightFideIds: [cairnsId],
       incompatibleOvernightIris: [
         "https://www.catalinaquest.ai/#place=cairns",
@@ -224,6 +232,33 @@ describe("itinerary stages", () => {
     });
     assert.equal(result.ok, false);
     assert.equal(result.errors.some((e) => /stay-min/i.test(e)), true);
+  });
+
+  it("verifies LEI max nights from world-model stay-max policy", () => {
+    const long: ClientItinerary = {
+      ...sample,
+      stops: [{ ...sample.stops[1], nights: 6 }],
+    };
+    const result = verifyItineraryStage(long, "route", {
+      placePolicies: testPolicies,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.errors.some((e) => /stay-max/i.test(e)), true);
+  });
+
+  it("warns when nights differ from recommended but stay in-band", () => {
+    const offRec: ClientItinerary = {
+      ...sample,
+      stops: [{ ...sample.stops[1], nights: 4 }],
+    };
+    const result = verifyItineraryStage(offRec, "route", {
+      placePolicies: testPolicies,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.warnings.some((w) => /recommended 3/i.test(w)),
+      true
+    );
   });
 
   it("treats missing hotels as pending during stays, hard only on approve", () => {

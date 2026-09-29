@@ -7,6 +7,7 @@ import {
   isNonBindableInventoryView,
   normalizeViewKey,
 } from "@/lib/fide/agent-views";
+import { enrichPayloadWithEntityComments } from "@/lib/fide/entity-comments-enrich";
 
 function extractToolText(result: unknown): string {
   if (typeof result === "string") {
@@ -62,6 +63,7 @@ function textToolResult(message: string): unknown {
  * Wrap Fide MCP tools:
  * - hide/refuse unbounded inventory dumps for the agent
  * - harvest run_view rows into the turn entity allowlist (except templates)
+ * - append local EntityComment notes for any fide ids in the result
  */
 export function wrapFideToolsWithBinder(
   tools: ToolSet,
@@ -96,7 +98,7 @@ export function wrapFideToolsWithBinder(
         if (viewKey && !isNonBindableInventoryView(viewKey)) {
           binder.harvestRunView(viewKey, extractToolText(result));
         }
-        return result;
+        return enrichPayloadWithEntityComments(result);
       },
     } as ToolSet[string];
   }

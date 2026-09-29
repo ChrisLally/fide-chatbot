@@ -24,8 +24,8 @@ export type StageVerifyOptions = {
   forApprove?: boolean;
   /**
    * Live (or test-injected) place policy from the world model.
-   * Stay-min, incompatible overnights, and overnight-requires-brief come from here —
-   * not from hardcoded Catalina place lists.
+   * Stay min/max, incompatible overnights, and overnight-requires-brief come from here —
+   * not from hardcoded Catalina place lists. Recommended is preferred at allocate-time.
    */
   placePolicies?: PlacePolicyMap;
 };
@@ -109,7 +109,7 @@ export function verifyItineraryStage(
     }
   }
 
-  // World-model overnight policy (incompatible pairs, brief-gated sells, stay-min).
+  // World-model overnight policy (incompatible pairs, brief-gated sells, stay band).
   for (let i = 0; i < itinerary.stops.length; i++) {
     const stop = itinerary.stops[i];
     const policy = policyForStop(placePolicies, stop.placeId);
@@ -129,6 +129,26 @@ export function verifyItineraryStage(
     ) {
       errors.push(
         `${stop.placeName} needs at least ${policy.stayMinNights} nights (graph stay-min); currently ${stop.nights}.`
+      );
+    }
+
+    if (
+      policy.stayMaxNights != null &&
+      stop.nights > policy.stayMaxNights
+    ) {
+      errors.push(
+        `${stop.placeName} allows at most ${policy.stayMaxNights} nights (graph stay-max); currently ${stop.nights}.`
+      );
+    }
+
+    if (
+      policy.stayRecommendedNights != null &&
+      stop.nights !== policy.stayRecommendedNights &&
+      (policy.stayMinNights == null || stop.nights >= policy.stayMinNights) &&
+      (policy.stayMaxNights == null || stop.nights <= policy.stayMaxNights)
+    ) {
+      warnings.push(
+        `${stop.placeName}: ${stop.nights} nights (graph recommended ${policy.stayRecommendedNights}; stay within min–max).`
       );
     }
 

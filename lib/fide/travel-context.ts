@@ -452,6 +452,14 @@ export function normalizeDestinationRow(
   // Browse chip uses primary landscape; filter matching also checks all landscapes.
   const filter = primaryLandscape || (iata ? "Airport" : "Destination");
 
+  const visitFit = readString(row, ["good_for_visit"]);
+  const fitTags = readTags(row, [
+    "good_for_visit",
+    "good_for_travelers",
+    "good_for_interests",
+    "good_for_access",
+  ]).slice(0, 6);
+
   return {
     kind: "destination",
     id,
@@ -460,21 +468,25 @@ export function normalizeDestinationRow(
     subtitle:
       [
         stay && `${stay} nights recommended`,
+        visitFit,
         iata && `IATA ${iata}`,
         landscapes,
         priority && `Priority ${priority}`,
       ]
         .filter(Boolean)
         .join(" · ") || "AU / NZ destination",
+    // Prefer short marketing description — never dump full voice notes into Context.
     description: readString(
       row,
-      ["advisor_note", "description"],
+      ["description"],
       "No description available yet."
     ),
     tags:
-      landscapeTags.length > 0
-        ? landscapeTags
-        : tagsFromRecord(row, ["landscapes", "iata_code", "vibe", "highlights"]),
+      fitTags.length > 0
+        ? fitTags
+        : landscapeTags.length > 0
+          ? landscapeTags
+          : tagsFromRecord(row, ["landscapes", "iata_code", "vibe", "highlights"]),
     raw: row,
   };
 }

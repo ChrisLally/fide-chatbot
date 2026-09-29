@@ -4,11 +4,46 @@ export type PlacePolicy = {
   fideId: string;
   placeName: string;
   placeIri?: string;
+  /** Graph `#stay-min-nights` — hard floor when set. */
   stayMinNights?: number;
+  /** Graph `#stay-recommended-nights` — preferred target when allocating. */
+  stayRecommendedNights?: number;
+  /** Graph `#stay-max-nights` — hard ceiling when set. */
+  stayMaxNights?: number;
   incompatibleOvernightFideIds: string[];
   incompatibleOvernightIris: string[];
   overnightRequiresBrief: boolean;
 };
+
+/** Soft autofit ceiling when the graph has no stay-max (legacy padding cap). */
+export const STAY_AUTOFIT_SOFT_MAX = 6;
+
+export function stayFloor(policy: PlacePolicy | undefined): number {
+  return policy?.stayMinNights != null ? policy.stayMinNights : 1;
+}
+
+export function stayCeiling(policy: PlacePolicy | undefined): number {
+  if (policy?.stayMaxNights != null) {
+    return policy.stayMaxNights;
+  }
+  return STAY_AUTOFIT_SOFT_MAX;
+}
+
+/** Preferred nights: recommended when present, else clamped mid-band / current. */
+export function stayTarget(
+  policy: PlacePolicy | undefined,
+  currentNights?: number
+): number {
+  const floor = stayFloor(policy);
+  const ceiling = stayCeiling(policy);
+  if (policy?.stayRecommendedNights != null) {
+    return Math.min(ceiling, Math.max(floor, policy.stayRecommendedNights));
+  }
+  if (currentNights != null) {
+    return Math.min(ceiling, Math.max(floor, currentNights));
+  }
+  return floor;
+}
 
 export type PlacePolicyMap = Map<string, PlacePolicy>;
 
@@ -63,6 +98,17 @@ export function placePolicyFromViewRow(
       rowVal(row, "place", "place_name", "placeName") || shortEntityId(fideId),
     placeIri: rowVal(row, "iri", "place_iri") || undefined,
     stayMinNights: parseIntish(rowVal(row, "stay_min_nights", "stayMinNights")),
+    stayRecommendedNights: parseIntish(
+      rowVal(
+        row,
+        "stay_recommended_nights",
+        "stayRecommendedNights",
+        "stay_rec_nights"
+      )
+    ),
+    stayMaxNights: parseIntish(
+      rowVal(row, "stay_max_nights", "stayMaxNights")
+    ),
     incompatibleOvernightFideIds: splitPipe(
       rowVal(
         row,

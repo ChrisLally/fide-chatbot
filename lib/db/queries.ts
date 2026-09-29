@@ -22,6 +22,7 @@ import {
   chat,
   type DBMessage,
   document,
+  entityComment,
   message,
   type Suggestion,
   stream,
@@ -712,6 +713,97 @@ export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
     throw new ChatbotError(
       "bad_request:database",
       "Failed to get stream ids by chat id"
+    );
+  }
+}
+
+export async function getEntityCommentsByEntityId({
+  entityId,
+}: {
+  entityId: string;
+}) {
+  const db = await getDb();
+  try {
+    return await db
+      .select()
+      .from(entityComment)
+      .where(eq(entityComment.entityId, entityId))
+      .orderBy(asc(entityComment.createdAt));
+  } catch (error) {
+    console.error("getEntityCommentsByEntityId failed", error);
+    throw new ChatbotError(
+      "bad_request:database",
+      "Failed to get entity comments"
+    );
+  }
+}
+
+export async function getEntityCommentsByEntityIds({
+  entityIds,
+}: {
+  entityIds: string[];
+}) {
+  const unique = [...new Set(entityIds.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) {
+    return [];
+  }
+
+  const db = await getDb();
+  try {
+    return await db
+      .select()
+      .from(entityComment)
+      .where(inArray(entityComment.entityId, unique))
+      .orderBy(asc(entityComment.createdAt));
+  } catch (error) {
+    console.error("getEntityCommentsByEntityIds failed", error);
+    throw new ChatbotError(
+      "bad_request:database",
+      "Failed to get entity comments"
+    );
+  }
+}
+
+export async function createEntityComment({
+  entityId,
+  body,
+}: {
+  entityId: string;
+  body: string;
+}) {
+  const db = await getDb();
+  try {
+    const [created] = await db
+      .insert(entityComment)
+      .values({
+        entityId,
+        body,
+        createdAt: new Date(),
+      })
+      .returning();
+    return created;
+  } catch (error) {
+    console.error("createEntityComment failed", error);
+    throw new ChatbotError(
+      "bad_request:database",
+      "Failed to create entity comment"
+    );
+  }
+}
+
+export async function deleteEntityComment({ id }: { id: string }) {
+  const db = await getDb();
+  try {
+    const deleted = await db
+      .delete(entityComment)
+      .where(eq(entityComment.id, id))
+      .returning({ id: entityComment.id });
+    return deleted[0] ?? null;
+  } catch (error) {
+    console.error("deleteEntityComment failed", error);
+    throw new ChatbotError(
+      "bad_request:database",
+      "Failed to delete entity comment"
     );
   }
 }

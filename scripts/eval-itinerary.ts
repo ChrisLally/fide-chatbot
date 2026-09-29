@@ -1,7 +1,12 @@
 /**
  * Eval: run Taylor on a trip prompt, log tool calls, validate itinerary Fide ids.
  *
- * Usage: pnpm eval:itinerary [--stays] [prompt...]
+ * Usage:
+ *   pnpm eval:stage --route [prompt...]   # default — createDocument spine only
+ *   pnpm eval:stage --stays [prompt...]   # + simulated Approve Route → hotels
+ *   pnpm eval:stage --days [prompt...]    # + Approve Stays → day blocks
+ *   pnpm eval:itinerary …                 # alias of eval:stage
+ *
  * Not Playwright — Bedrock + Fide MCP only.
  */
 import { config } from "dotenv";
@@ -33,25 +38,33 @@ import {
   type ClientItinerary,
 } from "../lib/itinerary/schema";
 import {
-  applyItineraryPatch,
+  applyItineraryPatches,
   itineraryPatchSchema,
   materializeRoute,
   proposeRouteSchema,
 } from "../lib/itinerary/patch";
+import { buildItineraryToolStatus } from "../lib/itinerary/agent-status";
 import { loadPlacePoliciesFromWorldModel } from "../lib/itinerary/wm-place-policy";
 
-import { approveCurrentStage } from "../lib/itinerary/stages";
+import { approveCurrentStage, ensureWorkflow } from "../lib/itinerary/stages";
 
 config({ path: resolve(process.cwd(), ".env") });
 
+type EvalStage = "route" | "stays" | "days";
+
 const argv = process.argv.slice(2);
-const THROUGH_STAYS = argv.includes("--stays");
+const STAGE_FLAGS = new Set(["--route", "--stays", "--days"]);
+const stageFlag = argv.find((a) => STAGE_FLAGS.has(a));
+const EVAL_STAGE: EvalStage =
+  stageFlag === "--days" ? "days" : stageFlag === "--stays" ? "stays" : "route";
+const THROUGH_STAYS = EVAL_STAGE === "stays" || EVAL_STAGE === "days";
+const THROUGH_DAYS = EVAL_STAGE === "days";
 const USER_PROMPT =
-  argv.filter((a) => a !== "--stays").join(" ").trim() ||
+  argv.filter((a) => !STAGE_FLAGS.has(a)).join(" ").trim() ||
   "make an itinerary for 4 day trip in australia. you choose from and to where and such";
 
 const WORLD_MODEL = process.env.FIDE_WORLD_MODEL_KEY?.trim() || "catalina-world-model";
-const MAX_STEPS = THROUGH_STAYS ? 28 : 16;
+const MAX_STEPS = THROUGH_DAYS ? 36 : THROUGH_STAYS ? 28 : 16;
 
 type TraceEvent = {
   step: number;
@@ -166,6 +179,8 @@ function printUiPreview(itinerary: ClientItinerary) {
 }
 
 async function main() {
+  console.log(`eval:stage=${EVAL_STAGE}  worldModel=${WORLD_MODEL}  maxSteps=${MAX_STEPS}`);
+  console.log(`prompt: ${USER_PROMPT.slice(0, 200)}${USER_PROMPT.length > 200 ? "…" : ""}`);
   console.log("── Eval itinerary ──");
   console.log(`Prompt: ${USER_PROMPT}`);
   console.log(`Model:  ${DEFAULT_CHAT_MODEL}`);
@@ -306,12 +321,12 @@ async function main() {
 
   fideTools.patchItinerary = tool({
     description:
-      "Apply one typed patch to the existing itinerary. Hotels only after Approve Route. Day blocks only after Approve Stays.",
+      "Apply a batch of typed itinerary ops (`patches: [...]`, even for one). Never call in parallel.",
     inputSchema: z.object({
       id: z.string(),
-      patch: itineraryPatchSchema,
+      patches: z.array(itineraryPatchSchema).min(1),
     }),
-    execute: async ({ id, patch }) => {
+    execute: async ({ id, patches }) => {
       stepCounter += 1;
       const step = stepCounter;
       if (!captured) {
@@ -320,7 +335,7 @@ async function main() {
         trace.push({
           step,
           tool: "patchItinerary",
-          input: { id, patch },
+          input: { id, patches },
           outputPreview: message,
           ok: false,
         });
@@ -329,7 +344,7 @@ async function main() {
       const placePolicies = await loadPlacePoliciesFromWorldModel(
         captured.stops.map((s) => s.placeId)
       );
-      const result = applyItineraryPatch(captured, patch, entityBinder, {
+      const result = applyItineraryPatches(captured, patches, entityBinder, {
         placePolicies,
       });
       if (!result.ok) {
@@ -337,26 +352,32 @@ async function main() {
         trace.push({
           step,
           tool: "patchItinerary",
-          input: { id, patch },
+          input: { id, patches },
           outputPreview: result.error,
           ok: false,
         });
-        return { error: result.error };
+        return {
+          error: result.error,
+          status: buildItineraryToolStatus(captured, placePolicies),
+        };
       }
       captured = result.itinerary;
       capturedRaw = serializeClientItinerary(result.itinerary);
-      console.log(`✓ [${step}] patchItinerary ${patch.op}`);
+      const ops = patches.map((p) => p.op).join(",");
+      console.log(`✓ [${step}] patchItinerary ${ops}`);
+      const status = buildItineraryToolStatus(captured, placePolicies);
       trace.push({
         step,
         tool: "patchItinerary",
-        input: { id, patch },
-        outputPreview: preview({ op: patch.op }, 160),
+        input: { id, patches },
+        outputPreview: preview({ ops, approve: status.approveButtonClickable }, 160),
         ok: true,
       });
       return {
         id,
-        op: patch.op,
-        content: `Itinerary patched (${patch.op}).`,
+        ops: patches.map((p) => p.op),
+        status,
+        content: `Itinerary patched (${ops}).`,
       };
     },
   });
@@ -409,12 +430,13 @@ async function main() {
     if (THROUGH_STAYS) {
       captured = approveCurrentStage(captured);
       console.log("\n── Simulated Approve Route → stays stage ──");
+      console.log(`workflow: ${JSON.stringify(ensureWorkflow(captured))}`);
       const staysResult = await generateText({
         model,
         system,
         prompt: [
           "The human clicked Approve Route. Workflow stage is now stays.",
-          "For EACH overnight stop, call inventory/hotels-by-city (city slug from the place name), then patchItinerary proposeStay { stopIndex, hotelId } with a Fide hotel id from that view.",
+          "For overnight stops, run inventory/hotels-by-city per city slug, then ONE patchItinerary with patches: [{op:proposeStay,stopIndex,hotelId}, …] for every stop.",
           "Lady Elliot Island is a resort island — if hotels-by-city returns no rows, skip that stop (no hotel required).",
           "Do not ask clarifying questions. Do not start the days stage. Stop when every non-island stop has a hotelId.",
           `Current itinerary JSON:\n${serializeClientItinerary(captured)}`,
@@ -424,6 +446,27 @@ async function main() {
       });
       console.log("\n── Stays assistant text ──");
       console.log(staysResult.text.trim() || "(empty — tool-only turn)");
+    }
+
+    if (THROUGH_DAYS) {
+      captured = approveCurrentStage(captured);
+      console.log("\n── Simulated Approve Stays → days stage ──");
+      console.log(`workflow: ${JSON.stringify(ensureWorkflow(captured))}`);
+      const daysResult = await generateText({
+        model,
+        system,
+        prompt: [
+          "The human clicked Approve Stays. Workflow stage is now days.",
+          "Fill day blocks for each overnight day using inventory/activities-by-city / attractions-by-city (city slug).",
+          "patchItinerary with a patches array of proposeDay ops. Keep the departure morning airport-light.",
+          "Do not ask clarifying questions. Stop when overnight days have named activities with Fide ids where inventory allows.",
+          `Current itinerary JSON:\n${serializeClientItinerary(captured)}`,
+        ].join("\n"),
+        tools: fideTools,
+        stopWhen: stepCountIs(MAX_STEPS),
+      });
+      console.log("\n── Days assistant text ──");
+      console.log(daysResult.text.trim() || "(empty — tool-only turn)");
     }
 
     const problems = assertFideIds(captured);
@@ -442,7 +485,7 @@ async function main() {
 
     printUiPreview(captured);
 
-    console.log("\n── Assertions ──");
+    console.log(`\n── Assertions (stage=${EVAL_STAGE}) ──`);
     if (THROUGH_STAYS) {
       const withHotels = captured.stops.filter((s) => s.hotelId).length;
       console.log(
@@ -466,8 +509,29 @@ async function main() {
         );
       }
     }
+    if (THROUGH_DAYS) {
+      const overnightDays = captured.days.filter(
+        (d) => !/depart/i.test(d.title ?? "")
+      );
+      const withBlocks = overnightDays.filter(
+        (d) => (d.blocks?.length ?? 0) > 0
+      ).length;
+      console.log(
+        `days: ${withBlocks}/${overnightDays.length} overnight days have blocks`
+      );
+      if (withBlocks < Math.min(2, overnightDays.length)) {
+        problems.push("Expected activity blocks on at least two overnight days.");
+      } else {
+        console.log("PASS: days stage has activity blocks on overnight days.");
+      }
+      const wf = ensureWorkflow(captured);
+      if (wf.stage !== "days" && wf.stage !== "complete") {
+        problems.push(`Expected workflow stage days|complete after stays approve, got ${wf.stage}`);
+      }
+    }
     if (problems.length === 0) {
       console.log("PASS: all placeId / entityId / hotelId values are Fide ids (0x…).");
+      console.log(`PASS: eval stage ${EVAL_STAGE} complete.`);
     } else {
       console.log("FAIL:");
       for (const p of problems) {

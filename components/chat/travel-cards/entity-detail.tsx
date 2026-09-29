@@ -5,6 +5,7 @@ import { ActivityCard } from "./activity-card";
 import { AttractionCard } from "./attraction-card";
 import { CollectionCard } from "./collection-card";
 import { DestinationCard } from "./destination-card";
+import { EntityComments } from "./entity-comments";
 import { EventCard } from "./event-card";
 import { HotelCard } from "./hotel-card";
 import { ItineraryCard } from "./itinerary-card";
@@ -18,13 +19,17 @@ export type EntityDetailProps = {
    * Off for peeks and the Context detail pane (already viewing it).
    */
   showOpenAction?: boolean;
+  /** When false, hide the comments panel (e.g. compact chat cards). Default true. */
+  showComments?: boolean;
 };
 
-/** Single shared entity renderer for chat cards, Context tab, and itinerary peek. */
-export function EntityDetail({
+function EntityCard({
   item,
-  showOpenAction = false,
-}: EntityDetailProps) {
+  showOpenAction,
+}: {
+  item: TravelContextItem;
+  showOpenAction: boolean;
+}) {
   if (item.kind === "hotel") {
     return <HotelCard item={item} showOpenAction={showOpenAction} />;
   }
@@ -50,4 +55,20 @@ export function EntityDetail({
     return <DestinationCard item={item} showOpenAction={showOpenAction} />;
   }
   return <TransportCard item={item} showOpenAction={showOpenAction} />;
+}
+
+/** Single shared entity renderer for chat cards, Context tab, and itinerary peek. */
+export function EntityDetail({
+  item,
+  showOpenAction = false,
+  showComments = true,
+}: EntityDetailProps) {
+  return (
+    <div className="space-y-4">
+      <EntityCard item={item} showOpenAction={showOpenAction} />
+      {showComments && item.id ? (
+        <EntityComments entityId={item.id} />
+      ) : null}
+    </div>
+  );
 }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   itineraryExportFilename,
   itineraryToPrintHtml,
@@ -39,18 +40,19 @@ const sample: ClientItinerary = {
 
 describe("itinerary print html", () => {
   it("slugs the filename", () => {
-    expect(itineraryExportFilename("Sydney & Lady Elliot", "html")).toBe(
+    assert.equal(
+      itineraryExportFilename("Sydney & Lady Elliot", "html"),
       "sydney-lady-elliot.html"
     );
   });
 
   it("renders title, stays, and transfers without JSON", () => {
     const html = itineraryToPrintHtml(sample);
-    expect(html).toContain("Sydney &amp; Lady Elliot");
-    expect(html).toContain("Park Hyatt Sydney");
-    expect(html).toContain("Lady Elliot Island");
-    expect(html).toContain("flight");
-    expect(html).not.toContain("did:fide");
-    expect(html).not.toContain("\"stops\"");
+    assert.ok(String(html).includes("Sydney &amp; Lady Elliot"));
+    assert.ok(String(html).includes("Park Hyatt Sydney"));
+    assert.ok(String(html).includes("Lady Elliot Island"));
+    assert.ok(String(html).includes("flight"));
+    assert.ok(!String(html).includes("did:fide"));
+    assert.ok(!String(html).includes("\"stops\""));
   });
 });

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   blockedViewError,
   filterListViewsResult,
@@ -8,12 +9,12 @@ import {
 
 describe("agent-views", () => {
   it("blocks unbounded inventory dumps", () => {
-    expect(isAgentBlockedView("inventory/hotels-all")).toBe(true);
-    expect(isAgentBlockedView("inventory/restaurants-all")).toBe(true);
-    expect(isAgentBlockedView("inventory/places")).toBe(true);
-    expect(isAgentBlockedView("inventory/hotels-by-city")).toBe(false);
-    expect(isAgentBlockedView("inventory/restaurants-by-city")).toBe(false);
-    expect(isAgentBlockedView("inventory/places-search")).toBe(false);
+    assert.equal(isAgentBlockedView("inventory/hotels-all"), true);
+    assert.equal(isAgentBlockedView("inventory/restaurants-all"), true);
+    assert.equal(isAgentBlockedView("inventory/places"), true);
+    assert.equal(isAgentBlockedView("inventory/hotels-by-city"), false);
+    assert.equal(isAgentBlockedView("inventory/restaurants-by-city"), false);
+    assert.equal(isAgentBlockedView("inventory/places-search"), false);
   });
 
   it("filters list_views JSON arrays", () => {
@@ -26,20 +27,20 @@ describe("agent-views", () => {
       ],
     }) as { views: Array<{ viewKey?: string; key?: string }> };
 
-    expect(filtered.views.map((v) => v.viewKey ?? v.key)).toEqual([
-      "inventory/hotels-by-city",
-      "inventory/places-search",
-    ]);
+    assert.deepEqual(
+      filtered.views.map((v) => v.viewKey ?? v.key),
+      ["inventory/hotels-by-city", "inventory/places-search"]
+    );
   });
 
   it("marks itinerary views non-bindable", () => {
-    expect(isNonBindableInventoryView("inventory/itineraries-all")).toBe(true);
-    expect(isNonBindableInventoryView("inventory/hotels-by-city")).toBe(false);
+    assert.equal(isNonBindableInventoryView("inventory/itineraries-all"), true);
+    assert.equal(isNonBindableInventoryView("inventory/hotels-by-city"), false);
   });
 
   it("explains blocked run_view", () => {
-    expect(blockedViewError("inventory/activities-all")).toContain(
-      "activities-by-city"
+    assert.ok(
+      blockedViewError("inventory/activities-all").includes("activities-by-city")
     );
   });
 });

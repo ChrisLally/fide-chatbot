@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   assembleJevScores,
   evaluationState,
@@ -37,20 +38,22 @@ const sample: ClientItinerary = {
 
 describe("jev night and transport ranking", () => {
   it("uses graph stay band for LEI and not for Sydney", () => {
-    expect(graphStayBand(lei)).toEqual({ min: 3, rec: 3, max: 5 });
-    expect(graphStayBand(sydney)).toEqual({});
+    assert.deepEqual(graphStayBand(lei), { min: 3, rec: 3, max: 5 });
+    assert.deepEqual(graphStayBand(sydney), {});
   });
 
   it("builds ranking targets from nights JSON and transfer slots", () => {
     const targets = rankingTargets(sample);
-    expect(targets.nightsSum).toBe(7);
-    expect(targets.stops[0]?.graphBandKnown).toBe(false);
-    expect(targets.stops[1]?.graphBandKnown).toBe(true);
-    expect(targets.stops[1]?.isIsland).toBe(true);
-    expect(targets.legs[0]?.involvesLei).toBe(true);
-    expect(targets.legs[0]?.carDisallowed).toBe(true);
-    expect(targets.legs.some((leg) => leg.toLabel.includes("Elliot") || leg.toLabel.includes("Lady"))).toBe(
-      true
+    assert.equal(targets.nightsSum, 7);
+    assert.equal(targets.stops[0]?.graphBandKnown, false);
+    assert.equal(targets.stops[1]?.graphBandKnown, true);
+    assert.equal(targets.stops[1]?.isIsland, true);
+    assert.equal(targets.legs[0]?.involvesLei, true);
+    assert.equal(targets.legs[0]?.carDisallowed, true);
+    assert.ok(
+      targets.legs.some(
+        (leg) => leg.toLabel.includes("Elliot") || leg.toLabel.includes("Lady")
+      )
     );
   });
 
@@ -64,9 +67,9 @@ describe("jev night and transport ranking", () => {
       stops: targets.stops,
       legs: targets.legs,
     });
-    expect(JSON.stringify(state).includes("undefined")).toBe(false);
-    expect("stayMin" in (state.stops[0] as object)).toBe(false);
-    expect("stayMin" in (state.stops[1] as object)).toBe(true);
+    assert.equal(JSON.stringify(state).includes("undefined"), false);
+    assert.equal("stayMin" in (state.stops[0] as object), false);
+    assert.equal("stayMin" in (state.stops[1] as object), true);
   });
 
   it("does not invent poor-fit scores when ranking fails", () => {
@@ -76,9 +79,9 @@ describe("jev night and transport ranking", () => {
       typesafeConfidence: null,
       error: "must be a JSON-compatible string, object, or array",
     });
-    expect(scores.nights).toEqual([]);
-    expect(scores.legs).toEqual([]);
-    expect(scores.error).toMatch(/JSON-compatible/);
+    assert.deepEqual(scores.nights, []);
+    assert.deepEqual(scores.legs, []);
+    assert.match(String(scores.error), /JSON-compatible/);
   });
 
   it("assembles scores from Jev answers without changing nights", () => {
@@ -102,12 +105,12 @@ describe("jev night and transport ranking", () => {
       },
       typesafeConfidence: { nights_0: 0.8 },
     });
-    expect(sample.stops[0].nights).toBe(4);
-    expect(scores.nights[0]?.score).toBe(3.1);
-    expect(nightFitLabel(2.53)).not.toMatch(/graph rec/i);
-    expect(nightFitLabel(2.53)).toMatch(/no stay-band implied/);
-    expect(scores.legs[0]?.recommended).toBe("flight");
-    expect(scores.verifierOk).toBe(true);
+    assert.equal(sample.stops[0].nights, 4);
+    assert.equal(scores.nights[0]?.score, 3.1);
+    assert.doesNotMatch(nightFitLabel(2.53), /graph rec/i);
+    assert.match(nightFitLabel(2.53), /no stay-band implied/);
+    assert.equal(scores.legs[0]?.recommended, "flight");
+    assert.equal(scores.verifierOk, true);
   });
 
   it("round-trips rankings on the itinerary JSON", async () => {
@@ -122,9 +125,9 @@ describe("jev night and transport ranking", () => {
     });
     const raw = serializeClientItinerary(itineraryWithRankings(sample, scores));
     const parsed = parseClientItinerary(raw);
-    expect(parsed.ok).toBe(true);
+    assert.equal(parsed.ok, true);
     if (parsed.ok) {
-      expect(parsed.data.rankings?.nights?.[0]?.score).toBe(2);
+      assert.equal(parsed.data.rankings?.nights?.[0]?.score, 2);
     }
   });
 
@@ -141,7 +144,7 @@ describe("jev night and transport ranking", () => {
       ],
     };
     const targets = rankingTargets(longCar);
-    expect(targets.legs.some((leg) => leg.carDisallowed)).toBe(true);
+    assert.equal(targets.legs.some((leg) => leg.carDisallowed), true);
   });
 
   it("extracts last user text and itinerary artifact id", () => {
@@ -158,8 +161,9 @@ describe("jev night and transport ranking", () => {
       },
       { role: "user", parts: [{ type: "text", text: "add a night" }] },
     ];
-    expect(lastUserTextFromMessages(messages)).toBe("add a night");
-    expect(lastItineraryArtifactId(messages)).toBe(
+    assert.equal(lastUserTextFromMessages(messages), "add a night");
+    assert.equal(
+      lastItineraryArtifactId(messages),
       "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     );
   });

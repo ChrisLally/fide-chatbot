@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import type { ClientItinerary } from "./schema.ts";
 import { stopStartDayNumbers, transferSlots } from "./transfers.ts";
 
@@ -33,21 +34,21 @@ const sample: ClientItinerary = {
 describe("transferSlots", () => {
   it("always yields arrival, between, departure", () => {
     const slots = transferSlots(sample);
-    expect(slots.map((s) => s.kind)).toEqual([
+    assert.deepEqual(slots.map((s) => s.kind), [
       "arrival",
       "between",
       "departure",
     ]);
-    expect(slots[1]?.transfer?.label).toBe("SYD-BNE");
-    expect(slots[0]?.transfer).toBeUndefined();
+    assert.equal(slots[1]?.transfer?.label, "SYD-BNE");
+    assert.equal(slots[0]?.transfer, undefined);
   });
 
   it("attaches place endpoints; route peek only when transfer.routeId is bound", () => {
     const slots = transferSlots(sample);
     const between = slots[1];
-    expect(between?.fromPlaceId).toBe(sample.stops[0].placeId);
-    expect(between?.toPlaceId).toBe(sample.stops[1].placeId);
-    expect(between?.routeId).toBeUndefined();
+    assert.equal(between?.fromPlaceId, sample.stops[0].placeId);
+    assert.equal(between?.toPlaceId, sample.stops[1].placeId);
+    assert.equal(between?.routeId, undefined);
 
     const withRoute = transferSlots({
       ...sample,
@@ -58,13 +59,14 @@ describe("transferSlots", () => {
         },
       ],
     });
-    expect(withRoute[1]?.routeId).toBe(
+    assert.equal(
+      withRoute[1]?.routeId,
       "https://www.catalinaquest.ai/#route=sydney--brisbane"
     );
-    expect(slots[0]?.toPlaceId).toBe(sample.stops[0].placeId);
-    expect(slots[0]?.fromPlaceId).toBeUndefined();
-    expect(slots[0]?.routeId).toBeUndefined();
-    expect(slots[2]?.fromPlaceId).toBe(sample.stops[1].placeId);
+    assert.equal(slots[0]?.toPlaceId, sample.stops[0].placeId);
+    assert.equal(slots[0]?.fromPlaceId, undefined);
+    assert.equal(slots[0]?.routeId, undefined);
+    assert.equal(slots[2]?.fromPlaceId, sample.stops[1].placeId);
   });
 
   it("does not invent airport arrival routes or peek Arrival as a place", () => {
@@ -82,17 +84,18 @@ describe("transferSlots", () => {
       ],
     });
     const arrival = slots[0];
-    expect(arrival?.fromLabel).toBe("Sydney Airport");
-    expect(arrival?.fromPlaceId).toBeUndefined();
-    expect(arrival?.routeId).toBeUndefined();
-    expect(arrival?.toPlaceId).toBe(sample.stops[0].placeId);
+    assert.equal(arrival?.fromLabel, "Sydney Airport");
+    assert.equal(arrival?.fromPlaceId, undefined);
+    assert.equal(arrival?.routeId, undefined);
+    assert.equal(arrival?.toPlaceId, sample.stops[0].placeId);
   });
 });
 
 describe("stopStartDayNumbers", () => {
   it("advances by nights (3 nights → next marker Day 4)", () => {
-    expect(
-      stopStartDayNumbers([{ nights: 3 }, { nights: 4 }, { nights: 2 }])
-    ).toEqual([1, 4, 8, 10]);
+    assert.deepEqual(
+      stopStartDayNumbers([{ nights: 3 }, { nights: 4 }, { nights: 2 }]),
+      [1, 4, 8, 10]
+    );
   });
 });

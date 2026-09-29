@@ -1,15 +1,48 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { createTurnEntityBinder } from "./entity-binder.ts";
 import {
   applyItineraryPatch,
+  applyItineraryPatches,
+  fitStopsToTripLength,
   materializeRoute,
 } from "./patch.ts";
 import type { ClientItinerary } from "./schema.ts";
+import type { PlacePolicyMap } from "./place-policy.ts";
 
 const sydney = "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069";
 const lei = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";
 const adina = "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a";
 const blue = "did:fide:0x40207505aad72bc6866680f82c90589bf4e7caeb";
+
+const stayPolicies: PlacePolicyMap = new Map([
+  [
+    lei,
+    {
+      fideId: lei,
+      placeName: "Lady Elliot Island",
+      stayMinNights: 3,
+      stayRecommendedNights: 3,
+      stayMaxNights: 5,
+      incompatibleOvernightFideIds: [],
+      incompatibleOvernightIris: [],
+      overnightRequiresBrief: false,
+    },
+  ],
+  [
+    sydney,
+    {
+      fideId: sydney,
+      placeName: "Sydney",
+      stayMinNights: 2,
+      stayRecommendedNights: 3,
+      stayMaxNights: 5,
+      incompatibleOvernightFideIds: [],
+      incompatibleOvernightIris: [],
+      overnightRequiresBrief: false,
+    },
+  ],
+]);
 
 const sample: ClientItinerary = {
   title: "Test",
@@ -56,11 +89,11 @@ describe("applyItineraryPatch", () => {
         { fideId: adina, name: "Adina Sydney", kind: "hotel" }
       )
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops[0]?.hotelId).toBe(adina);
-    expect(result.itinerary.stops[1]?.placeId).toBe(lei);
-    expect(result.itinerary.stops[1]?.hotelId).toBeUndefined();
+    assert.equal(result.itinerary.stops[0]?.hotelId, adina);
+    assert.equal(result.itinerary.stops[1]?.placeId, lei);
+    assert.equal(result.itinerary.stops[1]?.hotelId, undefined);
   });
 
   it("sets a hotel from a typed 0x11 id even with an empty allowlist", () => {
@@ -72,11 +105,11 @@ describe("applyItineraryPatch", () => {
       hotelId: parkHyatt,
       hotelName: "Park Hyatt Sydney",
     });
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops[0]?.hotelId).toBe(parkHyatt);
-    expect(result.itinerary.stops[0]?.hotelName).toBe("Park Hyatt Sydney");
-    expect(result.itinerary.stops[1]?.placeId).toBe(lei);
+    assert.equal(result.itinerary.stops[0]?.hotelId, parkHyatt);
+    assert.equal(result.itinerary.stops[0]?.hotelName, "Park Hyatt Sydney");
+    assert.equal(result.itinerary.stops[1]?.placeId, lei);
   });
 
   it("refuses hotels before the route is approved", () => {
@@ -89,9 +122,9 @@ describe("applyItineraryPatch", () => {
         hotelName: "Adina",
       }
     );
-    expect(result.ok).toBe(false);
+    assert.equal(result.ok, false);
     if (result.ok) return;
-    expect(result.error).toMatch(/Approve Route/i);
+    assert.match(result.error, /Approve Route/i);
   });
 
   it("rejects a non-hotel fide id for stays", () => {
@@ -103,7 +136,7 @@ describe("applyItineraryPatch", () => {
         { fideId: lei, name: "Lady Elliot Island", kind: "destination" }
       )
     );
-    expect(result.ok).toBe(false);
+    assert.equal(result.ok, false);
   });
 
   it("changes nights in code and updates durationDays", () => {
@@ -112,12 +145,39 @@ describe("applyItineraryPatch", () => {
       stopIndex: 1,
       nights: 5,
     });
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops[1]?.nights).toBe(5);
-    expect(result.itinerary.durationDays).toBe(9);
-    expect(result.itinerary.days).toHaveLength(9);
-    expect(result.itinerary.stops[0]?.placeId).toBe(sydney);
+    assert.equal(result.itinerary.stops[1]?.nights, 5);
+    assert.equal(result.itinerary.durationDays, 9);
+    assert.equal(result.itinerary.days.length, 9);
+    assert.equal(result.itinerary.stops[0]?.placeId, sydney);
+  });
+
+  it("rejects setStopNights above graph stay-max", () => {
+    const result = applyItineraryPatch(
+      sample,
+      { op: "setStopNights", stopIndex: 1, nights: 6 },
+      undefined,
+      { placePolicies: stayPolicies }
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.error, /stay-max/i);
+  });
+
+  it("applies a hotel batch in one call so no stop is lost", () => {
+    const hotelA = adina;
+    const hotelB = "did:fide:0x1120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const result = applyItineraryPatches(sample, [
+      { op: "proposeStay", stopIndex: 0, hotelId: hotelA, hotelName: "Adina" },
+      { op: "proposeStay", stopIndex: 1, hotelId: hotelB, hotelName: "Island Resort" },
+    ]);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.itinerary.stops[0]?.hotelId, hotelA);
+    assert.equal(result.itinerary.stops[0]?.hotelName, "Adina");
+    assert.equal(result.itinerary.stops[1]?.hotelId, hotelB);
+    assert.equal(result.itinerary.stops[1]?.hotelName, "Island Resort");
   });
 
   it("inserts a stop and remaps later day stopIndex", () => {
@@ -130,16 +190,16 @@ describe("applyItineraryPatch", () => {
         { fideId: blue, name: "Blue Mountains", kind: "destination" }
       )
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops.map((s) => s.placeName)).toEqual([
+    assert.deepEqual(result.itinerary.stops.map((s) => s.placeName), [
       "Sydney",
       "Blue Mountains",
       "Lady Elliot Island",
     ]);
-    expect(result.itinerary.days).toHaveLength(10);
-    expect(result.itinerary.days.filter((d) => d.stopIndex === 0)).toHaveLength(3);
-    expect(result.itinerary.days.find((d) => d.title.includes("Lady Elliot"))?.stopIndex).toBe(2);
+    assert.equal(result.itinerary.days.length, 10);
+    assert.equal(result.itinerary.days.filter((d) => d.stopIndex === 0).length, 3);
+    assert.equal(result.itinerary.days.find((d) => d.title.includes("Lady Elliot"))?.stopIndex, 2);
   });
 
   it("retitles day cards when a stop place is replaced", () => {
@@ -157,20 +217,20 @@ describe("applyItineraryPatch", () => {
         { fideId: blue, name: "Hunter Valley", kind: "destination" }
       )
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops[1]?.placeName).toBe("Hunter Valley");
+    assert.equal(result.itinerary.stops[1]?.placeName, "Hunter Valley");
     const stopDays = result.itinerary.days.filter((d) => d.stopIndex === 1);
-    expect(stopDays.some((d) => /blue mountains/i.test(d.title))).toBe(false);
-    expect(stopDays[0]?.title).toMatch(/Hunter Valley/i);
+    assert.equal(stopDays.some((d) => /blue mountains/i.test(d.title)), false);
+    assert.match(String(stopDays[0]?.title), /Hunter Valley/i);
   });
 
   it("removes a stop and remaps days", () => {
     const result = applyItineraryPatch(sample, { op: "removeStop", stopIndex: 0 });
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops).toHaveLength(1);
-    expect(result.itinerary.days.every((d) => d.stopIndex === 0)).toBe(true);
+    assert.equal(result.itinerary.stops.length, 1);
+    assert.equal(result.itinerary.days.every((d) => d.stopIndex === 0), true);
   });
 });
 
@@ -189,15 +249,15 @@ describe("materializeRoute", () => {
         { fideId: lei, name: "Lady Elliot Island", kind: "destination" }
       )
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.workflow?.stage).toBe("route");
-    expect(result.itinerary.stops[0]?.hotelId).toBeUndefined();
-    expect(result.itinerary.days).toHaveLength(8);
-    expect(result.itinerary.days.filter((d) => d.stopIndex === 0)).toHaveLength(3);
-    expect(result.itinerary.days[3]?.stopIndex).toBe(1);
-    expect(result.itinerary.days.at(-1)?.title).toMatch(/Depart/i);
-    expect(result.itinerary.durationDays).toBe(8);
+    assert.equal(result.itinerary.workflow?.stage, "route");
+    assert.equal(result.itinerary.stops[0]?.hotelId, undefined);
+    assert.equal(result.itinerary.days.length, 8);
+    assert.equal(result.itinerary.days.filter((d) => d.stopIndex === 0).length, 3);
+    assert.equal(result.itinerary.days[3]?.stopIndex, 1);
+    assert.match(String(result.itinerary.days.at(-1)?.title), /Depart/i);
+    assert.equal(result.itinerary.durationDays, 8);
   });
 
   it("adds the missing night when an 18-day route is one overnight short", () => {
@@ -236,13 +296,13 @@ describe("materializeRoute", () => {
         }
       )
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)).toBe(17);
-    expect(result.itinerary.stops.at(-1)?.nights).toBe(5);
-    expect(result.itinerary.durationDays).toBe(18);
-    expect(result.itinerary.days).toHaveLength(18);
-    expect(result.itinerary.days.at(-1)?.title).toMatch(/Depart/i);
+    assert.equal(result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0), 17);
+    assert.equal(result.itinerary.stops.at(-1)?.nights, 5);
+    assert.equal(result.itinerary.durationDays, 18);
+    assert.equal(result.itinerary.days.length, 18);
+    assert.match(String(result.itinerary.days.at(-1)?.title), /Depart/i);
   });
 
   it("spreads up to 3 missing nights onto existing stops instead of adding a filler city", () => {
@@ -281,12 +341,12 @@ describe("materializeRoute", () => {
         }
       )
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.stops).toHaveLength(5);
-    expect(result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)).toBe(17);
-    expect(result.itinerary.stops.map((stop) => stop.nights)).toEqual([2, 3, 4, 4, 4]);
-    expect(result.itinerary.durationDays).toBe(18);
+    assert.equal(result.itinerary.stops.length, 5);
+    assert.equal(result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0), 17);
+    assert.deepEqual(result.itinerary.stops.map((stop) => stop.nights), [2, 3, 4, 4, 4]);
+    assert.equal(result.itinerary.durationDays, 18);
   });
 
   it("rejects an 18-day title with leftover unallocated nights", () => {
@@ -305,10 +365,10 @@ describe("materializeRoute", () => {
         { fideId: blue, name: "Port Douglas", kind: "destination" }
       )
     );
-    expect(result.ok).toBe(false);
+    assert.equal(result.ok, false);
     if (result.ok) return;
-    expect(result.error).toMatch(/18-day/i);
-    expect(result.error).toMatch(/10/);
+    assert.match(result.error, /18-day/i);
+    assert.match(result.error, /10/);
   });
 
   it("expands 2 stubs into one day per night so day 3 exists", () => {
@@ -345,10 +405,55 @@ describe("materializeRoute", () => {
         blocks: [],
       }
     );
-    expect(result.ok).toBe(true);
+    assert.equal(result.ok, true);
     if (!result.ok) return;
-    expect(result.itinerary.days).toHaveLength(6);
-    expect(result.itinerary.days[2]?.stopIndex).toBe(1);
-    expect(result.itinerary.days[2]?.dayNumber).toBe(3);
+    assert.equal(result.itinerary.days.length, 6);
+    assert.equal(result.itinerary.days[2]?.stopIndex, 1);
+    assert.equal(result.itinerary.days[2]?.dayNumber, 3);
+  });
+});
+
+describe("fitStopsToTripLength stay bands", () => {
+  it("pads toward recommended before other headroom under max", () => {
+    const result = fitStopsToTripLength(
+      [
+        { placeId: sydney, placeName: "Sydney", nights: 2 },
+        { placeId: lei, placeName: "Lady Elliot Island", nights: 3 },
+      ],
+      8,
+      stayPolicies
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    // 7 nights target; start 2+3=5; +2 should fill Sydney to recommended 3 first, then LEI or Sydney
+    assert.equal(result.stops.reduce((s, x) => s + x.nights, 0), 7);
+    assert.equal(result.stops[0]?.nights, 3);
+    assert.ok((result.stops[1]?.nights ?? 0) >= 3);
+    assert.ok((result.stops[1]?.nights ?? 0) <= 5);
+  });
+
+  it("refuses to autofit above stay-max", () => {
+    const result = fitStopsToTripLength(
+      [{ placeId: lei, placeName: "Lady Elliot Island", nights: 5 }],
+      10,
+      stayPolicies
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.error, /stay-min\/max|stay-max/i);
+  });
+
+  it("refuses to autofit below stay-min", () => {
+    const result = fitStopsToTripLength(
+      [
+        { placeId: sydney, placeName: "Sydney", nights: 2 },
+        { placeId: lei, placeName: "Lady Elliot Island", nights: 3 },
+      ],
+      4,
+      stayPolicies
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.error, /stay-min/i);
   });
 });
