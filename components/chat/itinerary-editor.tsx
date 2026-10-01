@@ -35,9 +35,7 @@ import {
   type TransferSlot,
 } from "@/lib/itinerary/transfers";
 import type { ChatMessage } from "@/lib/types";
-import { parseJevScores, type JevScores } from "@/lib/itinerary/jev-types";
 import { DocumentSkeleton } from "@/components/chat/document-skeleton";
-import { JevScoresButton } from "@/components/chat/jev-scores-dialog";
 import {
   ItineraryEntityPeek,
   type PeekTarget,
@@ -345,7 +343,6 @@ function StageRail({
   verifyErrors = [],
   verifyWarnings = [],
   canApprove = true,
-  jev,
   onApprove,
   onReopen,
 }: {
@@ -354,7 +351,6 @@ function StageRail({
   verifyErrors?: string[];
   verifyWarnings?: string[];
   canApprove?: boolean;
-  jev?: JevScores | null;
   onApprove: () => void;
   onReopen: (stage: "route" | "stays" | "days") => void;
 }) {
@@ -395,7 +391,6 @@ function StageRail({
           <StatusBadge label="Complete" tone="success" />
         ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <JevScoresButton scores={jev} />
           {stage !== "complete" && editable ? (
             <button
               className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background disabled:opacity-40"
@@ -436,21 +431,24 @@ export function ItineraryEditor({
   isCurrentVersion,
   onSaveContent,
   sendMessage,
-  jev,
+  readOnly = false,
 }: {
   content: string;
   status: "streaming" | "idle";
   isCurrentVersion: boolean;
   onSaveContent: (updatedContent: string, debounce: boolean) => void;
   sendMessage?: UseChatHelpers<ChatMessage>["sendMessage"];
-  jev?: JevScores | null;
+  /** @deprecated JEV UI paused; kept optional so callers need not change yet. */
+  jev?: unknown;
+  /** Chat preview teaser — hide Approve / edit controls; side panel stays interactive. */
+  readOnly?: boolean;
 }) {
   const [peek, setPeek] = useState<PeekTarget | null>(null);
   const [placePolicies, setPlacePolicies] = useState<PlacePolicyMap>(
     () => new Map()
   );
   const parsed = parseClientItinerary(content);
-  const editable = isCurrentVersion && status !== "streaming";
+  const editable = !readOnly && isCurrentVersion && status !== "streaming";
 
   const placeIdsKey = useMemo(() => {
     if (!parsed.ok) {
@@ -628,7 +626,6 @@ export function ItineraryEditor({
           <StageRail
             canApprove={approveGate.ok}
             editable={editable}
-            jev={jev ?? parseJevScores(itinerary.rankings)}
             onApprove={handleApprove}
             onReopen={handleReopen}
             stage={stage}

@@ -292,10 +292,12 @@ const DocumentContent = ({ document }: { document: Document }) => {
         </div>
       ) : document.kind === "itinerary" ? (
         <div className="relative size-full overflow-hidden">
+          {/* Preview is read-only; Approve / edits live in the side panel. */}
           <ItineraryEditor
             content={document.content ?? ""}
             isCurrentVersion={true}
             onSaveContent={handleSaveContent}
+            readOnly
             status={artifact.status}
           />
         </div>

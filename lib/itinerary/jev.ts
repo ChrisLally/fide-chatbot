@@ -19,11 +19,9 @@ import {
 export type { JevScores, JevNightRow, JevLegRow } from "./jev-types";
 
 export function isJevRankingEnabled(): boolean {
+  // Off by default — set JEV_EVALUATE=1|on|true to re-enable advisory rankings.
   const flag = process.env.JEV_EVALUATE?.trim().toLowerCase();
-  if (flag === "0" || flag === "off" || flag === "false") {
-    return false;
-  }
-  return true;
+  return flag === "1" || flag === "on" || flag === "true";
 }
 
 export function lastUserTextFromParts(
