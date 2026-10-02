@@ -20,7 +20,10 @@ import {
   getCapabilities,
 } from "@/lib/ai/models";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
-import { getLanguageModel } from "@/lib/ai/providers";
+import {
+  getChatModelAttempts,
+  litellmFirstByteTimeoutMs,
+} from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
 import { patchItinerary } from "@/lib/ai/tools/patch-itinerary";
@@ -316,36 +319,91 @@ export async function POST(request: Request) {
         let finalStepToolCalls = 0;
         let finalFinishReason: string | undefined;
 
-        const result = streamText({
-          model: getLanguageModel(chatModel),
-          system: systemPrompt({
-            requestHints,
-            supportsTools,
-            supportsFideMcp: fideMcpEnabled && Object.keys(fideTools).length > 0,
-          }),
-          messages: modelMessages,
-          stopWhen: stepCountIs(maxChatSteps),
-          activeTools,
-          tools,
-          onStepEnd: (step) => {
-            completedSteps += 1;
-            finalStepText = step.text;
-            finalStepToolCalls = step.toolCalls.length;
-            finalFinishReason = step.finishReason;
-          },
-          onFinish: async () => {
-            await mcpClient?.close().catch(() => undefined);
-          },
-          experimental_telemetry: {
-            isEnabled: isProductionEnvironment,
-            functionId: "stream-text",
-          },
-        });
+        const attempts = getChatModelAttempts(chatModel);
+        let lastError: unknown;
 
-        for await (const chunk of result.toUIMessageStream<ChatMessage>({
-          sendReasoning: isReasoningModel,
-        })) {
-          dataStream.write(chunk);
+        for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex++) {
+          const attempt = attempts[attemptIndex];
+          const hasFallback = attemptIndex < attempts.length - 1;
+          let wroteChunk = false;
+          completedSteps = 0;
+          finalStepText = "";
+          finalStepToolCalls = 0;
+          finalFinishReason = undefined;
+
+          const controller = new AbortController();
+          let firstByteTimer: ReturnType<typeof setTimeout> | undefined;
+          if (attempt.label === "litellm" && hasFallback) {
+            firstByteTimer = setTimeout(() => {
+              controller.abort(
+                new Error(
+                  `LiteLLM produced no response within ${litellmFirstByteTimeoutMs()}ms`
+                )
+              );
+            }, litellmFirstByteTimeoutMs());
+          }
+
+          try {
+            const result = streamText({
+              model: attempt.model,
+              system: systemPrompt({
+                requestHints,
+                supportsTools,
+                supportsFideMcp:
+                  fideMcpEnabled && Object.keys(fideTools).length > 0,
+              }),
+              messages: modelMessages,
+              stopWhen: stepCountIs(maxChatSteps),
+              activeTools,
+              tools,
+              abortSignal: controller.signal,
+              onStepEnd: (step) => {
+                completedSteps += 1;
+                finalStepText = step.text;
+                finalStepToolCalls = step.toolCalls.length;
+                finalFinishReason = step.finishReason;
+              },
+              onFinish: async () => {
+                await mcpClient?.close().catch(() => undefined);
+              },
+              experimental_telemetry: {
+                isEnabled: isProductionEnvironment,
+                functionId: "stream-text",
+              },
+            });
+
+            for await (const chunk of result.toUIMessageStream<ChatMessage>({
+              sendReasoning: isReasoningModel,
+            })) {
+              if (firstByteTimer) {
+                clearTimeout(firstByteTimer);
+                firstByteTimer = undefined;
+              }
+              wroteChunk = true;
+              dataStream.write(chunk);
+            }
+
+            lastError = undefined;
+            break;
+          } catch (error) {
+            lastError = error;
+            if (firstByteTimer) {
+              clearTimeout(firstByteTimer);
+              firstByteTimer = undefined;
+            }
+            // Only fall back if nothing was streamed to the client yet.
+            if (wroteChunk || !hasFallback) {
+              throw error;
+            }
+            console.warn(
+              `[chat] provider ${attempt.label} failed; falling back to ${attempts[attemptIndex + 1]?.label}`,
+              error instanceof Error ? error.message : error
+            );
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
         }
 
         if (

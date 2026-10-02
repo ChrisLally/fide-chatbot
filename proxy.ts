@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import {
   appBasePath,
   guestRegex,
+  isAuthRequired,
   isDevelopmentEnvironment,
 } from "./lib/constants";
 
@@ -14,6 +15,16 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/auth")) {
+    // Guest mint disabled when login is required.
+    if (
+      isAuthRequired() &&
+      (pathname === `${appBasePath}/api/auth/guest` ||
+        pathname.endsWith("/api/auth/guest"))
+    ) {
+      return NextResponse.redirect(
+        new URL(`${appBasePath}/login`, request.url)
+      );
+    }
     return NextResponse.next();
   }
 
@@ -39,10 +50,37 @@ export async function proxy(request: NextRequest) {
 
   const isApiRoute = normalizedPathname.startsWith("/api");
   const isAuthPage = ["/login", "/register"].includes(normalizedPathname);
+  const requireLogin = isAuthRequired();
+  const isGuest = guestRegex.test(token?.email ?? "");
+  const hasRegularSession = Boolean(token) && !isGuest;
+
+  if (requireLogin) {
+    // Existing guest cookies are not enough — force a real account.
+    if (!hasRegularSession) {
+      if (isAuthPage) {
+        return NextResponse.next();
+      }
+      if (isApiRoute) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const redirectUrl = encodeURIComponent(normalizedPathname);
+      return NextResponse.redirect(
+        new URL(
+          `${base}/login?redirectUrl=${redirectUrl}`,
+          request.url
+        )
+      );
+    }
+
+    if (isAuthPage) {
+      return NextResponse.redirect(new URL(`${base}/`, request.url));
+    }
+
+    return NextResponse.next();
+  }
 
   if (!token) {
-    // Let auth pages, API routes, and the guest mint endpoint through.
-    // Everything else gets an automatic guest session.
+    // Demo / open mode: auto guest session for pages.
     if (isApiRoute || isAuthPage) {
       return NextResponse.next();
     }
@@ -52,8 +90,6 @@ export async function proxy(request: NextRequest) {
       new URL(`${base}/api/auth/guest?redirectUrl=${redirectUrl}`, request.url)
     );
   }
-
-  const isGuest = guestRegex.test(token?.email ?? "");
 
   if (
     token &&

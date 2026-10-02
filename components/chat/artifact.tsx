@@ -421,6 +421,11 @@ function PureArtifact({
     (updatedContent: string, debounce: boolean) => {
       latestContentRef.current = updatedContent;
       setIsContentDirty(true);
+      // Keep the open editor in sync immediately (don't wait for debounced POST).
+      setArtifact((currentArtifact) => ({
+        ...currentArtifact,
+        content: updatedContent,
+      }));
 
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
@@ -436,7 +441,7 @@ function PureArtifact({
         handleContentChange(updatedContent);
       }
     },
-    [handleContentChange]
+    [handleContentChange, setArtifact]
   );
 
   function getDocumentContentById(index: number) {

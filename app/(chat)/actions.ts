@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { auth } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/chat/visibility-selector";
 import { titlePrompt } from "@/lib/ai/prompts";
-import { getTitleModel } from "@/lib/ai/providers";
+import { getTitleModelAttempts } from "@/lib/ai/providers";
 import {
   deleteMessagesByChatIdAfterTimestamp,
   getChatById,
@@ -24,15 +24,33 @@ export async function generateTitleFromUserMessage({
 }: {
   message: UIMessage;
 }) {
-  const { text } = await generateText({
-    model: getTitleModel(),
-    system: titlePrompt,
-    prompt: getTextFromMessage(message),
-  });
-  return text
-    .replace(/^[#*"\s]+/, "")
-    .replace(/["]+$/, "")
-    .trim();
+  const attempts = getTitleModelAttempts();
+  let lastError: unknown;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      const { text } = await generateText({
+        model: attempts[i].model,
+        system: titlePrompt,
+        prompt: getTextFromMessage(message),
+      });
+      return text
+        .replace(/^[#*"\s]+/, "")
+        .replace(/["]+$/, "")
+        .trim();
+    } catch (error) {
+      lastError = error;
+      if (i === attempts.length - 1) {
+        break;
+      }
+      console.warn(
+        `[title] provider ${attempts[i].label} failed; falling back`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Title generation failed");
 }
 
 export async function deleteTrailingMessages({ id }: { id: string }) {

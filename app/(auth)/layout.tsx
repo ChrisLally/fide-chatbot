@@ -31,14 +31,14 @@ export default function AuthLayout({
 
       <div className="hidden flex-1 flex-col overflow-hidden pl-12 xl:flex">
         <div className="flex items-center gap-1.5 pt-8 text-[13px] text-muted-foreground/50">
-          Powered by
+          Powered by{" "}
           <Link
             className="font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-            href="https://reeflabs.io"
+            href="https://fide.work"
             rel="noreferrer"
             target="_blank"
           >
-            Reef Labs
+            Fide
           </Link>
         </div>
         <div className="flex flex-1 items-center justify-center pr-12">

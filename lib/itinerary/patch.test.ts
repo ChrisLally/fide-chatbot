@@ -411,6 +411,25 @@ describe("materializeRoute", () => {
     assert.equal(result.itinerary.days[2]?.stopIndex, 1);
     assert.equal(result.itinerary.days[2]?.dayNumber, 3);
   });
+
+  it("setStartDate writes the calendar field (not summary)", () => {
+    const result = applyItineraryPatch(sample, {
+      op: "setStartDate",
+      startDate: "2027-04-29",
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.itinerary.startDate, "2027-04-29");
+    assert.equal(result.itinerary.summary, sample.summary);
+
+    const cleared = applyItineraryPatch(result.itinerary, {
+      op: "setStartDate",
+      startDate: "",
+    });
+    assert.equal(cleared.ok, true);
+    if (!cleared.ok) return;
+    assert.equal(cleared.itinerary.startDate, undefined);
+  });
 });
 
 describe("fitStopsToTripLength stay bands", () => {

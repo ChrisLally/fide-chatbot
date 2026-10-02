@@ -10,6 +10,7 @@ const sample: ClientItinerary = {
   title: "Sydney & Lady Elliot",
   summary: "A first-timer spine.",
   durationDays: 8,
+  startDate: "2027-04-29",
   stops: [
     {
       placeId: "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069",
@@ -24,7 +25,24 @@ const sample: ClientItinerary = {
       nights: 3,
     },
   ],
-  days: [],
+  days: [
+    {
+      dayNumber: 1,
+      stopIndex: 0,
+      title: "Arrive Sydney",
+      description: "Settle in; light harbour walk only.",
+      transitNote: "No rental car Day 1.",
+      blocks: [
+        {
+          when: "afternoon",
+          entityId: "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069",
+          entityName: "Sydney Harbour",
+          entityKind: "destination",
+          note: "Harbour foreshore stroll after arrival",
+        },
+      ],
+    },
+  ],
   transfers: [
     {
       fromStopIndex: 0,
@@ -33,6 +51,7 @@ const sample: ClientItinerary = {
       toPlaceName: "Lady Elliot Island",
       mode: "flight",
       durationHours: 2,
+      note: "Via Brisbane gateway — light aircraft to the island.",
     },
   ],
   workflow: { stage: "route", approved: {} },
@@ -52,7 +71,32 @@ describe("itinerary print html", () => {
     assert.ok(String(html).includes("Park Hyatt Sydney"));
     assert.ok(String(html).includes("Lady Elliot Island"));
     assert.ok(String(html).includes("flight"));
+    assert.ok(String(html).includes("Booking"));
+    assert.ok(String(html).includes("Quotation"));
+    assert.ok(String(html).includes("Accommodation:"));
+    assert.ok(String(html).includes("Transfer:"));
+    assert.ok(String(html).includes("Check in date:"));
+    assert.ok(String(html).includes("Check out date:"));
+    assert.ok(String(html).includes("Description:"));
+    assert.ok(String(html).includes("Settle in; light harbour walk only."));
+    assert.ok(String(html).includes("Harbour foreshore stroll after arrival"));
+    assert.ok(String(html).includes("Via Brisbane gateway"));
+    assert.ok(String(html).includes("No rental car Day 1."));
+    assert.ok(String(html).includes("date-bar"));
     assert.ok(!String(html).includes("did:fide"));
-    assert.ok(!String(html).includes("\"stops\""));
+    assert.ok(!String(html).includes('"stops"'));
+  });
+
+  it("uses calendar date bars when startDate is set", () => {
+    const html = itineraryToPrintHtml({
+      ...sample,
+      startDate: "2027-04-29",
+    });
+    assert.ok(String(html).includes("Thursday, 29 Apr 27"));
+    // Day 1 accommodation bar + check-in
+    assert.ok(String(html).includes("Check in date:"));
+    assert.ok(String(html).includes("Thursday, 29 Apr 27"));
+    // Sydney 4 nights → checkout Day 5 = Mon 3 May 27
+    assert.ok(String(html).includes("Monday, 3 May 27"));
   });
 });

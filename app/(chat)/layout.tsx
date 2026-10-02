@@ -8,6 +8,7 @@ import { DataStreamProvider } from "@/components/chat/data-stream-provider";
 import { ChatShell } from "@/components/chat/shell";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ActiveChatProvider } from "@/hooks/use-active-chat";
+import { guestRegex, isAuthRequired } from "@/lib/constants";
 import { auth } from "../(auth)/auth";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -29,10 +30,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 async function SidebarShell({ children }: { children: React.ReactNode }) {
   const [session, cookieStore] = await Promise.all([auth(), cookies()]);
 
-  // No session yet — mint a guest (proxy should usually handle this first).
-  if (!session?.user) {
-    const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-    redirect(`${base}/api/auth/guest?redirectUrl=${encodeURIComponent("/")}`);
+  if (isAuthRequired()) {
+    const email = session?.user?.email ?? "";
+    const isGuest = guestRegex.test(email);
+    if (!session?.user || isGuest) {
+      // next/navigation redirect() already prefixes basePath (/demo).
+      redirect("/login");
+    }
+  } else if (!session?.user) {
+    // Open demo mode — mint a guest (proxy usually handles this first).
+    redirect(`/api/auth/guest?redirectUrl=${encodeURIComponent("/")}`);
   }
 
   const isCollapsed = cookieStore.get("sidebar_state")?.value !== "true";

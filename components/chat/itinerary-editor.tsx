@@ -654,6 +654,28 @@ export function ItineraryEditor({
               <h2 className="text-xl font-semibold tracking-tight">
                 {itinerary.title}
               </h2>
+              <label className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Trip start date</span>
+                <input
+                  className="rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground disabled:opacity-50"
+                  disabled={!editable}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    onSaveContent(
+                      serializeClientItinerary({
+                        ...itinerary,
+                        startDate: value || undefined,
+                      }),
+                      false
+                    );
+                  }}
+                  type="date"
+                  value={itinerary.startDate ?? ""}
+                />
+                <span className="text-xs">
+                  Used on print/download date bars (e.g. Thursday, 29 Apr 27)
+                </span>
+              </label>
               {itinerary.summary ? (
                 <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
                   {itinerary.summary}

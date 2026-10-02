@@ -528,8 +528,20 @@ function PureMultimodalInput({
             />
           </PromptInputTools>
 
-          {status === "submitted" ? (
-            <StopButton setMessages={setMessages} stop={stop} />
+          {status === "submitted" || status === "streaming" ? (
+            <div className="flex items-center gap-2">
+              <span
+                aria-live="polite"
+                className="hidden text-xs font-medium text-muted-foreground sm:inline"
+                data-testid="composer-working"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-1.5 animate-pulse rounded-full bg-foreground/70" />
+                  Working…
+                </span>
+              </span>
+              <StopButton setMessages={setMessages} stop={stop} />
+            </div>
           ) : (
             <PromptInputSubmit
               className={cn(
@@ -807,6 +819,7 @@ function PureStopButton({
 }) {
   return (
     <Button
+      aria-label="Stop generating"
       className="h-7 w-7 rounded-xl bg-foreground p-1 text-background transition-all duration-200 hover:opacity-85 active:scale-95 disabled:bg-muted disabled:text-muted-foreground/25 disabled:cursor-not-allowed"
       data-testid="stop-button"
       onClick={(event) => {
@@ -814,6 +827,8 @@ function PureStopButton({
         stop();
         setMessages((messages) => messages);
       }}
+      title="Stop"
+      type="button"
     >
       <StopIcon size={14} />
     </Button>

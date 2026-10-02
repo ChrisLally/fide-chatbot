@@ -134,6 +134,15 @@ export const itineraryPatchSchema = z.discriminatedUnion("op", [
     op: z.literal("setTitle"),
     title: z.string().min(1),
   }),
+  z.object({
+    op: z.literal("setStartDate"),
+    startDate: z
+      .string()
+      .regex(/^(\d{4}-\d{2}-\d{2})?$/, "startDate must be YYYY-MM-DD or empty to clear")
+      .describe(
+        "Trip Day 1 calendar date (YYYY-MM-DD) for the date picker and print bars. Empty string clears. Do not only put the date in summary prose."
+      ),
+  }),
 ]);
 
 export type ItineraryPatch = z.infer<typeof itineraryPatchSchema>;
@@ -145,6 +154,11 @@ export type PatchResult =
 export const proposeRouteSchema = z.object({
   title: z.string().min(1).optional(),
   summary: z.string().optional(),
+  /** Day 1 calendar date (YYYY-MM-DD) when the brief names one. */
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   durationDays: z.number().int().min(1).optional(),
   stops: z
     .array(
@@ -590,6 +604,9 @@ function applyOneItineraryPatch(
     case "setTitle":
       itinerary.title = patch.title;
       return { ok: true, itinerary, omitted: [] };
+    case "setStartDate":
+      itinerary.startDate = patch.startDate.trim() || undefined;
+      return { ok: true, itinerary, omitted: [] };
     default: {
       const _never: never = patch;
       return { ok: false, error: `Unknown op: ${String(_never)}` };
@@ -622,6 +639,7 @@ export function materializeRoute(
     title: draft.title?.trim() || title,
     summary: draft.summary ?? "",
     durationDays: calendarDayCount(stops),
+    startDate: draft.startDate,
     stops,
     days: [],
     transfers: draft.transfers ?? [],

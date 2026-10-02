@@ -384,6 +384,14 @@ export const clientItinerarySchema = z
     title: z.string().min(1),
     summary: z.string().default(""),
     durationDays: z.number().int().min(1),
+    /**
+     * Calendar start for Day 1 (YYYY-MM-DD). Used by print/download quotation
+     * date bars; optional until the advisor sets it.
+     */
+    startDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD")
+      .optional(),
     stops: z.array(clientItineraryStopSchema).min(1),
     /** May be empty during route stage (stubs filled server-side). */
     days: z.array(clientItineraryDaySchema).default([]),
@@ -635,6 +643,10 @@ const clientItineraryLooseSchema = z.object({
   title: z.string().min(1),
   summary: z.string().optional().default(""),
   durationDays: z.number().int().min(1),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   stops: z
     .array(
       z.object({

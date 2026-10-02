@@ -7,8 +7,17 @@ import { useActionState, useEffect, useState } from "react";
 
 import { AuthForm } from "@/components/chat/auth-form";
 import { SubmitButton } from "@/components/chat/submit-button";
-import { toast } from "@/components/chat/toast";
 import { type LoginActionState, login } from "../actions";
+
+function loginErrorMessage(status: LoginActionState["status"]) {
+  if (status === "failed") {
+    return "Incorrect email or password.";
+  }
+  if (status === "invalid_data") {
+    return "Enter a valid email and a password of at least 6 characters.";
+  }
+  return null;
+}
 
 export default function Page() {
   const router = useRouter();
@@ -21,19 +30,15 @@ export default function Page() {
   );
 
   const { update: updateSession } = useSession();
+  const errorMessage = loginErrorMessage(state.status);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: router and updateSession are stable refs
   useEffect(() => {
-    if (state.status === "failed") {
-      toast({ type: "error", description: "Invalid credentials!" });
-    } else if (state.status === "invalid_data") {
-      toast({
-        type: "error",
-        description: "Failed validating your submission!",
-      });
-    } else if (state.status === "success") {
+    if (state.status === "success") {
       setIsSuccessful(true);
       updateSession();
+      // next/navigation router already prefixes basePath (/demo) — do not add it again.
+      router.replace("/");
       router.refresh();
     }
   }, [state.status]);
@@ -50,6 +55,14 @@ export default function Page() {
         Sign in to your account to continue
       </p>
       <AuthForm action={handleSubmit} defaultEmail={email}>
+        {errorMessage ? (
+          <p
+            className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400"
+            role="alert"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
         <SubmitButton isSuccessful={isSuccessful}>Sign in</SubmitButton>
         <p className="text-center text-[13px] text-muted-foreground">
           No account? Contact the{" "}

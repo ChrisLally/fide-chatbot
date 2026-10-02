@@ -17,6 +17,12 @@ export const isTestEnvironment = Boolean(
 
 export const guestRegex = /^guest-\d+$/;
 
+/** When true, no auto-guest; login required (guests redirected to /login). */
+export function isAuthRequired(): boolean {
+  const flag = process.env.AUTH_REQUIRE_LOGIN?.trim().toLowerCase();
+  return flag === "1" || flag === "on" || flag === "true" || flag === "yes";
+}
+
 export const DUMMY_PASSWORD = generateDummyPassword();
 
 export const suggestions = [
