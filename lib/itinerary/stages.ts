@@ -1,48 +1,34 @@
 import type { ClientItinerary, ClientItineraryDay, ClientItineraryStop } from "./schema";
+import {
+  allocateDayId,
+  allocateStopId,
+  ensureArtifactIds,
+  nextDayIdCounter,
+} from "./ids";
+import {
+  emptyWorkflow,
+  ensureWorkflow,
+  migrateApprovalValue,
+  migrateWorkflow,
+  nextStageAfter,
+  STAGE_HELP,
+  STAGE_LABELS,
+  type ApprovalRecord,
+  type ItineraryStage,
+  type ItineraryWorkflow,
+} from "./workflow";
 
-export const ITINERARY_STAGES = ["route", "stays", "days", "complete"] as const;
-export type ItineraryStage = (typeof ITINERARY_STAGES)[number];
-
-export type ItineraryWorkflow = {
-  stage: ItineraryStage;
-  approved: {
-    route?: string;
-    stays?: string;
-    days?: string;
-  };
+export {
+  emptyWorkflow,
+  ensureWorkflow,
+  migrateApprovalValue,
+  migrateWorkflow,
+  nextStageAfter,
+  STAGE_HELP,
+  STAGE_LABELS,
 };
-
-export const STAGE_LABELS: Record<ItineraryStage, string> = {
-  route: "Route",
-  stays: "Stays",
-  days: "Days",
-  complete: "Complete",
-};
-
-export const STAGE_HELP: Record<ItineraryStage, string> = {
-  route:
-    "Overnight bases, nights, and transport cards between them. Approve when the spine looks right.",
-  stays:
-    "Pick a hotel for each overnight stop. Approve when properties match the brief.",
-  days:
-    "One card per overnight plus a departure morning. Last day stays airport-light. Approve when pacing is client-ready.",
-  complete: "All stages approved. Chat to tweak, or export later.",
-};
-
-export function emptyWorkflow(stage: ItineraryStage = "route"): ItineraryWorkflow {
-  return { stage, approved: {} };
-}
-
-/** Infer workflow for legacy itineraries that lack the field. Never skip ahead. */
-export function ensureWorkflow(itinerary: ClientItinerary): ItineraryWorkflow {
-  if (itinerary.workflow?.stage) {
-    return {
-      stage: itinerary.workflow.stage,
-      approved: { ...itinerary.workflow.approved },
-    };
-  }
-  return emptyWorkflow("route");
-}
+export type { ApprovalRecord, ItineraryStage, ItineraryWorkflow };
+export const ITINERARY_STAGES = ["stops", "stays", "days", "complete"] as const;
 
 export function withWorkflow(
   itinerary: ClientItinerary,
@@ -51,33 +37,37 @@ export function withWorkflow(
   return { ...itinerary, workflow };
 }
 
-export function nextStageAfter(stage: ItineraryStage): ItineraryStage {
-  if (stage === "route") return "stays";
-  if (stage === "stays") return "days";
-  return "complete";
+export function bumpVersion(itinerary: ClientItinerary): ClientItinerary {
+  return { ...itinerary, version: (itinerary.version ?? 1) + 1 };
 }
 
-export function approveCurrentStage(itinerary: ClientItinerary): ClientItinerary {
+export function approveCurrentStage(
+  itinerary: ClientItinerary,
+  options?: { by?: "human" | "auto"; bump?: boolean }
+): ClientItinerary {
   const workflow = ensureWorkflow(itinerary);
   if (workflow.stage === "complete") {
     return withWorkflow(itinerary, workflow);
   }
   const now = new Date().toISOString();
-  const stage = workflow.stage as "route" | "stays" | "days";
-  return withWorkflow(itinerary, {
+  const by = options?.by ?? "human";
+  const stage = workflow.stage as "stops" | "stays" | "days";
+  const record: ApprovalRecord = { at: now, by };
+  const next = withWorkflow(itinerary, {
     stage: nextStageAfter(workflow.stage),
-    approved: { ...workflow.approved, [stage]: now },
+    approved: { ...workflow.approved, [stage]: record },
   });
+  return options?.bump === false ? next : bumpVersion(next);
 }
 
 export function reopenStage(
   itinerary: ClientItinerary,
-  stage: "route" | "stays" | "days"
+  stage: "stops" | "stays" | "days"
 ): ClientItinerary {
   const workflow = ensureWorkflow(itinerary);
   const approved = { ...workflow.approved };
-  if (stage === "route") {
-    delete approved.route;
+  if (stage === "stops") {
+    delete approved.stops;
     delete approved.stays;
     delete approved.days;
   } else if (stage === "stays") {
@@ -86,7 +76,34 @@ export function reopenStage(
   } else {
     delete approved.days;
   }
+  return bumpVersion(withWorkflow(itinerary, { stage, approved }));
+}
+
+/** Clear stays + days approvals after a stops-structure mutation. */
+export function clearApprovalsAfterStopsChange(
+  itinerary: ClientItinerary
+): ClientItinerary {
+  const workflow = ensureWorkflow(itinerary);
+  const approved = { ...workflow.approved };
+  delete approved.stays;
+  delete approved.days;
+  const stage =
+    workflow.stage === "days" || workflow.stage === "complete"
+      ? "stays"
+      : workflow.stage === "stays"
+        ? "stays"
+        : workflow.stage;
   return withWorkflow(itinerary, { stage, approved });
+}
+
+/** Clear stays approval after a hotel mutation (days approval untouched). */
+export function clearApprovalsAfterHotelChange(
+  itinerary: ClientItinerary
+): ClientItinerary {
+  const workflow = ensureWorkflow(itinerary);
+  const approved = { ...workflow.approved };
+  delete approved.stays;
+  return withWorkflow(itinerary, { stage: workflow.stage, approved });
 }
 
 export function overnightTotal(stops: ClientItineraryStop[]): number {
@@ -114,6 +131,7 @@ function isDepartureTitle(title: string): boolean {
 /**
  * One day card per overnight, plus a departure morning on the last stop.
  * Calendar dayNumber is 1…sum(nights)+1.
+ * Preserves dayId when reusing a prior day; allocates new ids for new slots.
  */
 export function syncDaysToNights(
   stops: ClientItineraryStop[],
@@ -121,12 +139,17 @@ export function syncDaysToNights(
 ): ClientItineraryDay[] {
   const days: ClientItineraryDay[] = [];
   let dayNumber = 1;
+  const dayCounter = { next: nextDayIdCounter(existing) };
 
   stops.forEach((stop, stopIndex) => {
     const nights = Math.max(1, stop.nights);
     const isLast = stopIndex === stops.length - 1;
     const prior = existing
-      .filter((day) => day.stopIndex === stopIndex)
+      .filter((day) =>
+        stop.stopId && day.stopId
+          ? day.stopId === stop.stopId
+          : day.stopIndex === stopIndex
+      )
       .sort((a, b) => a.dayNumber - b.dayNumber);
     const departPrior = isLast
       ? prior.filter((day) => isDepartureTitle(day.title ?? ""))
@@ -151,29 +174,65 @@ export function syncDaysToNights(
         /^stay in /i.test(priorTitle) ||
         / · day \d+$/i.test(priorTitle) ||
         isDepartureTitle(priorTitle);
+      const dayId =
+        source?.dayId && source.dayId.trim()
+          ? source.dayId
+          : allocateDayId(existing, dayCounter);
       days.push({
         dayNumber,
+        dayId,
         stopIndex,
+        stopId: stop.stopId,
         title: titleIsStub ? autoTitle : priorTitle,
         description: source?.description ?? "",
         transitNote: source?.transitNote,
         blocks: source?.blocks ?? [],
+        ...(source?.stale ? { stale: true } : {}),
       });
       dayNumber += 1;
     }
   });
 
-  return days.length > 0
-    ? days
-    : [
-        {
-          dayNumber: 1,
-          stopIndex: 0,
-          title: "Draft",
-          description: "",
-          blocks: [],
-        },
-      ];
+  if (days.length > 0) {
+    return days;
+  }
+
+  const fallbackStopId =
+    stops[0]?.stopId ?? allocateStopId(stops.length ? stops : [{ stopId: "s0" }]);
+  return [
+    {
+      dayNumber: 1,
+      dayId: allocateDayId([], dayCounter),
+      stopIndex: 0,
+      stopId: fallbackStopId,
+      title: "Draft",
+      description: "",
+      blocks: [],
+    },
+  ];
+}
+
+/**
+ * True when shrinking nights would drop day cards that still have blocks.
+ */
+export function nightsShrinkWouldLoseBlocks(
+  stops: ClientItineraryStop[],
+  existing: ClientItineraryDay[],
+  stopIndex: number,
+  newNights: number
+): boolean {
+  const stop = stops[stopIndex];
+  if (!stop) return false;
+  const prior = existing
+    .filter((day) =>
+      stop.stopId && day.stopId
+        ? day.stopId === stop.stopId
+        : day.stopIndex === stopIndex
+    )
+    .filter((day) => !isDepartureTitle(day.title ?? ""))
+    .sort((a, b) => a.dayNumber - b.dayNumber);
+  const withBlocks = prior.filter((day) => (day.blocks?.length ?? 0) > 0);
+  return withBlocks.length > newNights;
 }
 
 /** Strip fields that belong to later stages. */
@@ -189,31 +248,33 @@ export function projectToStage(
           approved: ensureWorkflow(itinerary).approved,
         };
 
-  if (stage === "route") {
+  if (stage === "stops") {
     const stops = itinerary.stops.map((stop) => ({
+      stopId: stop.stopId,
       placeId: stop.placeId,
       placeName: stop.placeName,
       nights: stop.nights,
     }));
+    const withIds = ensureArtifactIds({ ...itinerary, stops, days: [] });
     const days =
       itinerary.days.length > 0
         ? syncDaysToNights(
-            stops,
+            withIds.stops,
             itinerary.days.map((day) => ({
               ...day,
               blocks: [] as ClientItineraryDay["blocks"],
             }))
           )
-        : stubDaysForStops(stops);
+        : stubDaysForStops(withIds.stops);
     return withWorkflow(
       {
         ...itinerary,
-        stops,
+        stops: withIds.stops,
         days,
         transfers: itinerary.transfers ?? [],
-        durationDays: Math.max(itinerary.durationDays, calendarDayCount(stops)),
+        durationDays: Math.max(itinerary.durationDays, calendarDayCount(withIds.stops)),
       },
-      { stage: "route", approved: {} }
+      { stage: "stops", approved: {} }
     );
   }
 
@@ -242,9 +303,9 @@ export function mergeStageUpdate(
   const workflow = ensureWorkflow(previous);
   const stage = workflow.stage;
 
-  if (stage === "route" || stage === "complete") {
+  if (stage === "stops" || stage === "complete") {
     return withWorkflow(
-      stage === "route" ? projectToStage(draft, "route") : draft,
+      stage === "stops" ? projectToStage(draft, "stops") : draft,
       workflow
     );
   }
@@ -254,6 +315,7 @@ export function mergeStageUpdate(
       const match =
         draft.stops.find(
           (candidate) =>
+            (stop.stopId && candidate.stopId === stop.stopId) ||
             candidate.placeId === stop.placeId ||
             candidate.placeName.toLowerCase() === stop.placeName.toLowerCase()
         ) ?? draft.stops[index];
@@ -296,10 +358,10 @@ export function mergeStageUpdate(
 
 export function stageAdvancePrompt(stage: ItineraryStage): string | null {
   if (stage === "stays") {
-    return "Route approved. Continue on stays from the brief and the overnight stops already on the canvas.";
+    return "Stops approved. Continue on stays from the brief and the overnight stops already on the canvas.";
   }
   if (stage === "days") {
-    return "Stays approved. Continue on days from the brief, the route, and realistic travel time. Keep departure mornings light.";
+    return "Stays approved. Continue on days from the brief, the stops, and realistic travel time. Keep departure mornings light.";
   }
   return null;
 }

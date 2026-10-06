@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { ensureArtifactIds } from "./ids";
 import { fideFingerprint } from "./sha256";
-import { ensureWorkflow } from "./stages";
+import { ensureWorkflow, migrateWorkflow } from "./workflow";
 
 export const dayWhenSchema = z.enum([
   "morning",
@@ -319,6 +320,8 @@ export const dayBlockSchema = z.object({
 });
 
 export const clientItineraryStopSchema = z.object({
+  /** Stable artifact id: s1, s2, … */
+  stopId: z.string().regex(/^s\d+$/).optional(),
   placeId: entityIdSchema,
   placeName: z.string().min(1),
   nights: z.number().int().min(1),
@@ -341,8 +344,8 @@ export const itineraryTransferSchema = z.object({
   mode: z.string().optional(),
   durationHours: z.number().optional(),
   note: z.string().optional(),
-  /** Optional graph route id / IRI when bound from transport views. */
-  routeId: z.string().optional(),
+  /** Transport corridor option IRI from inventory/transport-corridor. */
+  transportOptionIri: z.string().optional(),
   fromPlaceName: z.string().optional(),
   toPlaceName: z.string().optional(),
   fromPlaceId: z.string().optional(),
@@ -350,8 +353,12 @@ export const itineraryTransferSchema = z.object({
 });
 
 export const clientItineraryDaySchema = z.object({
+  /** Stable artifact id: d1, d2, … */
+  dayId: z.string().regex(/^d\d+$/).optional(),
   dayNumber: z.number().int().min(1),
   stopIndex: z.number().int().min(0),
+  /** Prefer stopId; stopIndex kept for display / legacy. */
+  stopId: z.string().regex(/^s\d+$/).optional(),
   title: z.string().min(1),
   description: z.string().default(""),
   blocks: z.array(dayBlockSchema).optional(),
@@ -359,22 +366,29 @@ export const clientItineraryDaySchema = z.object({
   activityIds: z.array(z.string()).optional(),
   activityNames: z.array(z.string()).optional(),
   transitNote: z.string().optional(),
+  /** Day content may be invalid after place/nights changes. */
+  stale: z.boolean().optional(),
 });
 
 export const itineraryStageSchema = z.enum([
-  "route",
+  "stops",
   "stays",
   "days",
   "complete",
 ]);
 
+const approvalProvenanceSchema = z.object({
+  at: z.string().min(1),
+  by: z.enum(["human", "auto"]),
+});
+
 export const itineraryWorkflowSchema = z.object({
   stage: itineraryStageSchema,
   approved: z
     .object({
-      route: z.string().optional(),
-      stays: z.string().optional(),
-      days: z.string().optional(),
+      stops: approvalProvenanceSchema.optional(),
+      stays: approvalProvenanceSchema.optional(),
+      days: approvalProvenanceSchema.optional(),
     })
     .default({}),
 });
@@ -392,12 +406,18 @@ export const clientItinerarySchema = z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD")
       .optional(),
+    /** Monotonic doc revision for optimistic concurrency (`baseVersion`). */
+    version: z.number().int().min(1).default(1),
+    /** Artifact shape version; 2 = stopId/dayId/transportOptionIri/stops stage. */
+    schemaVersion: z.number().int().min(1).default(2),
     stops: z.array(clientItineraryStopSchema).min(1),
-    /** May be empty during route stage (stubs filled server-side). */
+    /** May be empty during stops stage (stubs filled server-side). */
     days: z.array(clientItineraryDaySchema).default([]),
     /** Arrival / between-stop / departure transport cards. */
     transfers: z.array(itineraryTransferSchema).default([]),
     workflow: itineraryWorkflowSchema.optional(),
+    /** @deprecated Unused — brochure templates are reference-only; no seed path. */
+    derivedFromTemplateId: z.string().optional(),
     /** Advisory night/transport rankings. Not a source of itinerary truth. */
     rankings: z.any().optional(),
   })
@@ -560,6 +580,7 @@ export function normalizeClientItinerary(
       placeId,
       placeName: stop.placeName,
       nights: stop.nights < 1 ? 1 : stop.nights,
+      ...(stop.stopId ? { stopId: stop.stopId } : {}),
       ...(hotelId
         ? {
             hotelId,
@@ -615,21 +636,43 @@ export function normalizeClientItinerary(
 
     return {
       dayNumber: day.dayNumber,
+      dayId: day.dayId,
       stopIndex: day.stopIndex,
+      stopId: day.stopId,
       title: day.title,
       description: day.description ?? "",
       transitNote: day.transitNote,
       blocks,
+      ...(day.stale ? { stale: true } : {}),
     };
   });
 
-  return {
+  const rawTransfers = Array.isArray(data.transfers) ? data.transfers : [];
+  const transfers = rawTransfers.map((transfer) => {
+    const row = transfer as ItineraryTransfer & { routeId?: string };
+    const transportOptionIri =
+      row.transportOptionIri?.trim() || row.routeId?.trim() || undefined;
+    const { routeId: _legacy, ...rest } = row as ItineraryTransfer & {
+      routeId?: string;
+    };
+    return {
+      ...rest,
+      ...(transportOptionIri ? { transportOptionIri } : {}),
+    };
+  });
+
+  const draft: ClientItinerary = {
     ...data,
     stops,
     days,
-    transfers: Array.isArray(data.transfers) ? data.transfers : [],
-    workflow: data.workflow,
+    transfers,
+    version: typeof data.version === "number" && data.version >= 1 ? data.version : 1,
+    schemaVersion: 2,
+    workflow: data.workflow ? migrateWorkflow(data.workflow) : data.workflow,
+    derivedFromTemplateId: (data as ClientItinerary).derivedFromTemplateId,
   };
+
+  return ensureArtifactIds(draft);
 }
 
 export function stripJsonFences(raw: string): string {
@@ -650,6 +693,7 @@ const clientItineraryLooseSchema = z.object({
   stops: z
     .array(
       z.object({
+        stopId: z.string().optional(),
         placeId: z.string().optional(),
         placeIri: z.string().optional(),
         placeName: z.string().min(1),
@@ -664,10 +708,13 @@ const clientItineraryLooseSchema = z.object({
   days: z
     .array(
       z.object({
+        dayId: z.string().optional(),
         dayNumber: z.number().int().min(1),
         stopIndex: z.number().int().min(0),
+        stopId: z.string().optional(),
         title: z.string().min(1),
         description: z.string().optional().default(""),
+        stale: z.boolean().optional(),
         blocks: z
           .array(
             z.object({
@@ -703,6 +750,7 @@ const clientItineraryLooseSchema = z.object({
         durationHours: z.number().optional(),
         note: z.string().optional(),
         routeId: z.string().optional(),
+        transportOptionIri: z.string().optional(),
         fromPlaceName: z.string().optional(),
         toPlaceName: z.string().optional(),
         fromPlaceId: z.string().optional(),
@@ -713,17 +761,21 @@ const clientItineraryLooseSchema = z.object({
     .default([]),
   workflow: z
     .object({
-      stage: z.enum(["route", "stays", "days", "complete"]),
+      stage: z.enum(["stops", "stays", "days", "complete", "route"]),
       approved: z
         .object({
-          route: z.string().optional(),
-          stays: z.string().optional(),
-          days: z.string().optional(),
+          stops: z.union([z.string(), approvalProvenanceSchema]).optional(),
+          route: z.union([z.string(), approvalProvenanceSchema]).optional(),
+          stays: z.union([z.string(), approvalProvenanceSchema]).optional(),
+          days: z.union([z.string(), approvalProvenanceSchema]).optional(),
         })
         .optional()
         .default({}),
     })
     .optional(),
+  version: z.number().int().optional(),
+  schemaVersion: z.number().int().optional(),
+  derivedFromTemplateId: z.string().optional(),
   rankings: z.any().optional(),
 });
 

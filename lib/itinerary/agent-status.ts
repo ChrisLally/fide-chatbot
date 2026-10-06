@@ -3,24 +3,92 @@ import type { PlacePolicyMap } from "./place-policy";
 import { ensureWorkflow, STAGE_LABELS, type ItineraryStage } from "./stages";
 import { verifyItineraryStage } from "./stage-verifier";
 
+/** Machine-readable fix hint for the agent. */
+export type ItineraryStatusFix = {
+  code: string;
+  message: string;
+  stopId?: string;
+  dayId?: string;
+  suggested?: Record<string, unknown>;
+};
+
 export type ItineraryToolStatus = {
   stage: ItineraryStage;
   stageLabel: string;
+  /** Artifact write version — send as baseVersion on the next patchItinerary. */
+  version: number;
   /** Same gate as the UI Approve button (`forApprove: true`). */
   approveButtonClickable: boolean;
   errors: string[];
   warnings: string[];
+  /** Machine-readable fixes derived from verifier errors. */
+  fixes: ItineraryStatusFix[];
   nightsTotal: number;
   durationDays: number;
   stops: Array<{
+    stopId?: string;
     stopIndex: number;
     placeName: string;
     nights: number;
     hotelName?: string;
   }>;
+  days: Array<{
+    dayId?: string;
+    dayNumber: number;
+    stopId?: string;
+    title: string;
+    stale?: boolean;
+  }>;
   /** What Taylor should do next given stage + approve gate. */
   nextAction: string;
 };
+
+const STAY_MIN_RE = /stay-min/i;
+const STAY_MAX_RE = /stay-max/i;
+const HOTEL_RE = /Hotels still needed/i;
+const INCOMPAT_RE = /incompatible-overnight|overnight bases/i;
+
+function fixesFromErrors(
+  itinerary: ClientItinerary,
+  errors: string[]
+): ItineraryStatusFix[] {
+  const fixes: ItineraryStatusFix[] = [];
+  for (const error of errors) {
+    if (STAY_MIN_RE.test(error)) {
+      const stop = itinerary.stops.find((s) =>
+        error.toLowerCase().includes(s.placeName.toLowerCase())
+      );
+      fixes.push({
+        code: "STAY_BELOW_MIN",
+        message: error,
+        stopId: stop?.stopId,
+        suggested: stop ? { nights: stop.nights + 1 } : undefined,
+      });
+      continue;
+    }
+    if (STAY_MAX_RE.test(error)) {
+      const stop = itinerary.stops.find((s) =>
+        error.toLowerCase().includes(s.placeName.toLowerCase())
+      );
+      fixes.push({
+        code: "STAY_ABOVE_MAX",
+        message: error,
+        stopId: stop?.stopId,
+      });
+      continue;
+    }
+    if (HOTEL_RE.test(error)) {
+      fixes.push({ code: "HOTELS_REQUIRED", message: error });
+      continue;
+    }
+    if (INCOMPAT_RE.test(error)) {
+      fixes.push({ code: "INCOMPATIBLE_OVERNIGHTS", message: error });
+      continue;
+    }
+    fixes.push({ code: "VERIFIER_ERROR", message: error });
+  }
+  return fixes;
+}
 
 function nextActionFor(
   stage: ItineraryStage,
@@ -28,25 +96,25 @@ function nextActionFor(
   errors: string[]
 ): string {
   if (errors.length > 0 || !approveClickable) {
-    if (stage === "route") {
-      return "Approve Route is NOT clickable. Fix the errors (stay min/max, incompatible overnights, etc.) with patchItinerary / a corrected createDocument, then re-check status. Do not ask the human to Approve yet.";
+    if (stage === "stops") {
+      return "Approve Stops is NOT clickable. Fix the errors (stay min/max, incompatible overnights, etc.) with patchItinerary / a corrected createDocument, then re-check status. Do not ask the human to Approve yet.";
     }
     if (stage === "stays") {
-      return "Approve Stays is NOT clickable. Finish required hotels (and clear any hard errors) with patchItinerary proposeStay/setStopHotel, then re-check status. Do not ask the human to Approve yet.";
+      return "Approve Stays is NOT clickable. Finish required hotels (and clear any hard errors) with patchItinerary setStopHotel, then re-check status. Do not ask the human to Approve yet.";
     }
     if (stage === "days") {
-      return "Approve Days is NOT clickable. Add day blocks (and clear hard errors) with patchItinerary proposeDay, then re-check status. Do not ask the human to Approve yet.";
+      return "Approve Days is NOT clickable. Add day blocks (and clear hard errors) with patchItinerary setDayBlocks, then re-check status. Do not ask the human to Approve yet.";
     }
     return "Approve is NOT clickable. Fix the listed errors before stopping.";
   }
-  if (stage === "route") {
-    return "Approve Route IS clickable. STOP and wait for the human to click Approve Route. Do not add hotels or days.";
+  if (stage === "stops") {
+    return "Approve Stops IS clickable. STOP and wait for the human to click Approve Stops. Do not add hotels or days.";
   }
   if (stage === "stays") {
-    return "Approve Stays IS clickable. STOP and wait for the human to click Approve Stays. Do not add day activities yet.";
+    return "Approve Stays IS clickable (or will soft-auto-advance when hotels are complete). Prefer finishing hotels via setStopHotel; do not add day activities until days stage.";
   }
   if (stage === "days") {
-    return "Approve Days IS clickable. STOP and wait for the human to click Approve Days.";
+    return "Approve Days IS clickable (or will soft-auto-advance when day blocks are complete).";
   }
   return "Itinerary stage is complete.";
 }
@@ -70,20 +138,31 @@ export function buildItineraryToolStatus(
     (sum, stop) => sum + stop.nights,
     0
   );
+  const errors = gate.errors.length > 0 ? gate.errors : display.errors;
 
   return {
     stage,
     stageLabel: STAGE_LABELS[stage],
+    version: itinerary.version ?? 1,
     approveButtonClickable: gate.ok,
-    errors: gate.errors.length > 0 ? gate.errors : display.errors,
+    errors,
     warnings: display.warnings,
+    fixes: fixesFromErrors(itinerary, errors),
     nightsTotal,
     durationDays: itinerary.durationDays,
     stops: itinerary.stops.map((stop, stopIndex) => ({
+      stopId: stop.stopId,
       stopIndex,
       placeName: stop.placeName,
       nights: stop.nights,
       hotelName: stop.hotelName,
+    })),
+    days: itinerary.days.map((day) => ({
+      dayId: day.dayId,
+      dayNumber: day.dayNumber,
+      stopId: day.stopId,
+      title: day.title,
+      ...(day.stale ? { stale: true } : {}),
     })),
     nextAction: nextActionFor(stage, gate.ok, gate.errors),
   };

@@ -6,6 +6,8 @@ export const alisonGoldenItinerary: ClientItinerary = {
   summary:
     "18-day Catalina-shaped draft: Sydney opener, Lady Elliot reef base (light aircraft), Port Douglas / Daintree (not Cairns stack), Brisbane departure.",
   durationDays: 18,
+  version: 1,
+  schemaVersion: 2,
   transfers: [
     {
       fromStopIndex: -1,
@@ -389,9 +391,9 @@ export const alisonGoldenItinerary: ClientItinerary = {
   workflow: {
     stage: "complete",
     approved: {
-      route: "golden",
-      stays: "golden",
-      days: "golden",
+      stops: { at: "golden", by: "human" },
+      stays: { at: "golden", by: "human" },
+      days: { at: "golden", by: "human" },
     },
   },
 };

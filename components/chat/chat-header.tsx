@@ -1,6 +1,6 @@
 "use client";
 
-import { DatabaseIcon, PanelLeftIcon } from "lucide-react";
+import { DatabaseIcon, FileTextIcon, PanelLeftIcon } from "lucide-react";
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
@@ -37,15 +37,17 @@ function PureChatHeader({
   selectedVisibilityType,
   isReadonly,
   onOpenWorldModel,
+  onOpenItinerary,
 }: {
   chatId: string;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
   onOpenWorldModel?: () => void;
+  onOpenItinerary?: () => void;
 }) {
   const { state, toggleSidebar, isMobile } = useSidebar();
   const isCollapsedDesktop = state === "collapsed" && !isMobile;
-  const showContextLabel = !isCollapsedDesktop && !isMobile;
+  const showLabels = !isCollapsedDesktop && !isMobile;
 
   return (
     <header className="sticky top-0 flex h-14 min-w-0 items-center gap-2 bg-sidebar px-3">
@@ -77,22 +79,38 @@ function PureChatHeader({
         <CatalinaLogo />
       </div>
 
-      {onOpenWorldModel ? (
-        <Button
-          aria-label="Open context"
-          className="ml-auto shrink-0"
-          onClick={onOpenWorldModel}
-          size={showContextLabel ? "sm" : "icon-sm"}
-          variant="ghost"
-        >
-          <DatabaseIcon className="size-4" />
-          {showContextLabel ? (
-            <span>Context</span>
-          ) : (
-            <span className="sr-only">Context</span>
-          )}
-        </Button>
-      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {onOpenItinerary ? (
+          <Button
+            aria-label="Open itinerary"
+            onClick={onOpenItinerary}
+            size={showLabels ? "sm" : "icon-sm"}
+            variant="ghost"
+          >
+            <FileTextIcon className="size-4" />
+            {showLabels ? (
+              <span>Itinerary</span>
+            ) : (
+              <span className="sr-only">Itinerary</span>
+            )}
+          </Button>
+        ) : null}
+        {onOpenWorldModel ? (
+          <Button
+            aria-label="Open context"
+            onClick={onOpenWorldModel}
+            size={showLabels ? "sm" : "icon-sm"}
+            variant="ghost"
+          >
+            <DatabaseIcon className="size-4" />
+            {showLabels ? (
+              <span>Context</span>
+            ) : (
+              <span className="sr-only">Context</span>
+            )}
+          </Button>
+        ) : null}
+      </div>
     </header>
   );
 }
@@ -102,6 +120,7 @@ export const ChatHeader = memo(PureChatHeader, (prevProps, nextProps) => {
     prevProps.chatId === nextProps.chatId &&
     prevProps.selectedVisibilityType === nextProps.selectedVisibilityType &&
     prevProps.isReadonly === nextProps.isReadonly &&
-    prevProps.onOpenWorldModel === nextProps.onOpenWorldModel
+    prevProps.onOpenWorldModel === nextProps.onOpenWorldModel &&
+    prevProps.onOpenItinerary === nextProps.onOpenItinerary
   );
 });

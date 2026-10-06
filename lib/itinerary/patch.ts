@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { TurnEntityBinder } from "./entity-binder";
 import {
+  allocateStopId,
+  ensureArtifactIds,
+  nextStopIdCounter,
+} from "./ids";
+import {
   clientItinerarySchema,
   fideIdEntityType,
   fideIdHex,
@@ -19,8 +24,13 @@ import {
   type PlacePolicyMap,
 } from "./place-policy";
 import {
+  approveCurrentStage,
+  bumpVersion,
   calendarDayCount,
+  clearApprovalsAfterHotelChange,
+  clearApprovalsAfterStopsChange,
   ensureWorkflow,
+  nightsShrinkWouldLoseBlocks,
   overnightTotal,
   stubDaysForStops,
   syncDaysToNights,
@@ -30,6 +40,7 @@ import {
 export type PatchVerifyOptions = {
   placePolicies?: PlacePolicyMap;
 };
+
 const fideIdSchema = z
   .string()
   .min(1)
@@ -53,56 +64,60 @@ const transferSliceSchema = z.object({
   mode: z.string().optional(),
   durationHours: z.number().optional(),
   note: z.string().optional(),
-  routeId: z.string().optional(),
+  transportOptionIri: z.string().optional(),
   fromPlaceName: z.string().optional(),
   toPlaceName: z.string().optional(),
 });
 
+/** stopId preferred; stopIndex only when stopId absent (migration/tests). */
+const stopRefFields = {
+  stopId: z.string().regex(/^s\d+$/).optional(),
+  stopIndex: z.number().int().min(0).optional(),
+};
+
+const dayRefFields = {
+  dayId: z.string().regex(/^d\d+$/).optional(),
+  dayNumber: z.number().int().min(1).optional(),
+};
+
 export const itineraryPatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("setStopHotel"),
-    stopIndex: z.number().int().min(0),
-    hotelId: fideIdSchema,
-    hotelName: z.string().optional(),
-  }),
-  z.object({
-    op: z.literal("proposeStay"),
-    stopIndex: z.number().int().min(0),
+    ...stopRefFields,
     hotelId: fideIdSchema,
     hotelName: z.string().optional(),
   }),
   z.object({
     op: z.literal("setStopNights"),
-    stopIndex: z.number().int().min(0),
+    ...stopRefFields,
     nights: z.number().int().min(1),
+    /** Required when shrinking nights would drop day cards with blocks. */
+    confirmShrink: z.boolean().optional(),
   }),
   z.object({
     op: z.literal("addStop"),
-    afterIndex: z.number().int().min(-1),
+    /** Insert after this stopId (or within-batch temp key). Omit / use afterIndex:-1 for start. */
+    afterStopId: z.string().optional(),
+    afterIndex: z.number().int().min(-1).optional(),
+    /** Within-batch temp key so later ops can address this stop before server id is known. */
+    key: z.string().min(1).optional(),
     placeId: fideIdSchema,
     placeName: z.string().min(1).optional(),
     nights: z.number().int().min(1),
   }),
   z.object({
     op: z.literal("removeStop"),
-    stopIndex: z.number().int().min(0),
+    ...stopRefFields,
   }),
   z.object({
     op: z.literal("replaceStopPlace"),
-    stopIndex: z.number().int().min(0),
+    ...stopRefFields,
     placeId: fideIdSchema,
     placeName: z.string().min(1).optional(),
   }),
   z.object({
     op: z.literal("setDayBlocks"),
-    dayNumber: z.number().int().min(1),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    blocks: z.array(blockProposeSchema).max(4),
-  }),
-  z.object({
-    op: z.literal("proposeDay"),
-    dayNumber: z.number().int().min(1),
+    ...dayRefFields,
     title: z.string().optional(),
     description: z.string().optional(),
     blocks: z.array(blockProposeSchema).max(4),
@@ -115,13 +130,13 @@ export const itineraryPatchSchema = z.discriminatedUnion("op", [
     mode: z.string().optional(),
     durationHours: z.number().optional(),
     note: z.string().optional(),
-    routeId: z.string().optional(),
+    transportOptionIri: z.string().optional(),
     fromPlaceName: z.string().optional(),
     toPlaceName: z.string().optional(),
   }),
   z.object({
     op: z.literal("setDayCopy"),
-    dayNumber: z.number().int().min(1),
+    ...dayRefFields,
     title: z.string().optional(),
     description: z.string().optional(),
     transitNote: z.string().optional(),
@@ -147,11 +162,18 @@ export const itineraryPatchSchema = z.discriminatedUnion("op", [
 
 export type ItineraryPatch = z.infer<typeof itineraryPatchSchema>;
 
-export type PatchResult =
-  | { ok: true; itinerary: ClientItinerary; omitted: string[] }
-  | { ok: false; error: string; omitted?: string[] };
+export type PatchDiagnostic = {
+  opIndex: number;
+  code: string;
+  message: string;
+  candidates?: string[];
+};
 
-export const proposeRouteSchema = z.object({
+export type PatchResult =
+  | { ok: true; itinerary: ClientItinerary }
+  | { ok: false; error: string; diagnostics: PatchDiagnostic[] };
+
+export const proposeStopsSchema = z.object({
   title: z.string().min(1).optional(),
   summary: z.string().optional(),
   /** Day 1 calendar date (YYYY-MM-DD) when the brief names one. */
@@ -173,7 +195,8 @@ export const proposeRouteSchema = z.object({
   transfers: z.array(transferSliceSchema).optional(),
 });
 
-export type ProposeRoute = z.infer<typeof proposeRouteSchema>;
+/** @deprecated Internal alias — agent-facing name is proposeStopsSchema. */
+export type ProposeStops = z.infer<typeof proposeStopsSchema>;
 
 function asDid(id: string): string {
   const hex = fideIdHex(id);
@@ -249,53 +272,85 @@ function pendingBlock(
   };
 }
 
-function parseKeep(itinerary: ClientItinerary, omitted: string[] = []): PatchResult {
+function failDiag(
+  opIndex: number,
+  code: string,
+  message: string,
+  candidates?: string[]
+): PatchResult {
+  return {
+    ok: false,
+    error: message,
+    diagnostics: [
+      {
+        opIndex,
+        code,
+        message,
+        ...(candidates?.length ? { candidates } : {}),
+      },
+    ],
+  };
+}
+
+function parseKeep(itinerary: ClientItinerary, opIndex = 0): PatchResult {
   const parsed = clientItinerarySchema.safeParse({
     ...itinerary,
     durationDays: nightsSum(itinerary.stops),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.message, omitted };
+    return failDiag(opIndex, "SCHEMA_INVALID", parsed.error.message);
   }
-  return { ok: true, itinerary: parsed.data, omitted };
+  return { ok: true, itinerary: parsed.data };
 }
 
-function kindFail(id: string, kind: PeekEntityKind): PatchResult | null {
+function kindFail(
+  id: string,
+  kind: PeekEntityKind,
+  opIndex: number
+): PatchResult | null {
   if (fideKindOk(id, kind)) return null;
   const got = fideIdEntityType(id) ?? "unknown";
-  return {
-    ok: false,
-    error: `${kind} id must be a typed Fide id (hotel=0x11, place=0x40, activity=0x31). Got type ${got} for ${id}.`,
-  };
+  return failDiag(
+    opIndex,
+    "KIND_MISMATCH",
+    `${kind} id must be a typed Fide id (hotel=0x11, place=0x40, activity=0x31). Got type ${got} for ${id}.`
+  );
 }
 
 function bindAndKeep(
   itinerary: ClientItinerary,
   binder: TurnEntityBinder | undefined,
-  requiredHint: string
+  requiredHint: string,
+  opIndex = 0
 ): PatchResult {
   if (!binder) {
     const parsed = clientItinerarySchema.safeParse(itinerary);
     if (!parsed.success) {
-      return { ok: false, error: parsed.error.message };
+      return failDiag(opIndex, "SCHEMA_INVALID", parsed.error.message);
     }
-    return { ok: true, itinerary: parsed.data, omitted: [] };
+    return { ok: true, itinerary: parsed.data };
   }
 
   const { itinerary: bound, omitted } = binder.bind(itinerary);
   if (bound.stops.length === 0) {
-    return {
-      ok: false,
-      error: `Bind dropped every stop. run_view places-search first. (${omitted.join("; ") || requiredHint})`,
-      omitted,
-    };
+    return failDiag(
+      opIndex,
+      "BIND_EMPTY",
+      `Bind dropped every stop. run_view places-search first. (${omitted.join("; ") || requiredHint})`
+    );
   }
-  if (omitted.some((row) => row.toLowerCase().includes(requiredHint.toLowerCase()) || row.includes(requiredHint))) {
-    return {
-      ok: false,
-      error: `Not on this turn's allowlist: ${omitted.join("; ")}. run_view the matching inventory view and retry with the exact name.`,
-      omitted,
-    };
+  if (
+    omitted.some(
+      (row) =>
+        row.toLowerCase().includes(requiredHint.toLowerCase()) ||
+        row.includes(requiredHint)
+    )
+  ) {
+    return failDiag(
+      opIndex,
+      "BIND_OMITTED",
+      `Invalid or unbound entity id: ${omitted.join("; ")}. Copy did:fide:0x… from run_view.`
+    );
   }
 
   const parsed = clientItinerarySchema.safeParse({
@@ -303,37 +358,39 @@ function bindAndKeep(
     durationDays: nightsSum(bound.stops),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.message, omitted };
+    return failDiag(opIndex, "SCHEMA_INVALID", parsed.error.message);
   }
-  return { ok: true, itinerary: parsed.data, omitted };
+  return { ok: true, itinerary: parsed.data };
 }
 
 function stageBlocksOp(
   stage: ReturnType<typeof ensureWorkflow>["stage"],
-  op: string
+  op: string,
+  opIndex: number
 ): PatchResult | null {
-  const hotelOps = op === "setStopHotel" || op === "proposeStay";
-  const dayOps = op === "setDayBlocks" || op === "proposeDay";
-  if (stage === "route" && (hotelOps || dayOps)) {
-    return {
-      ok: false,
-      error:
-        "Route is not approved yet. Stop. Do not add hotels or day activities, and do not call createDocument again. Wait for the human to click Approve Route.",
-    };
+  const hotelOps = op === "setStopHotel";
+  const dayOps = op === "setDayBlocks";
+  if (stage === "stops" && (hotelOps || dayOps)) {
+    return failDiag(
+      opIndex,
+      "STAGE_BLOCKED",
+      "Stops are not approved yet. Stop. Do not add hotels or day activities, and do not call createDocument again. Wait for the human to click Approve Stops."
+    );
   }
   if (stage === "stays" && dayOps) {
-    return {
-      ok: false,
-      error:
-        "Stays are not approved yet. Only set hotels (setStopHotel). Wait for Approve Stays before day activities.",
-    };
+    return failDiag(
+      opIndex,
+      "STAGE_BLOCKED",
+      "Stays are not approved yet. Only set hotels (setStopHotel). Wait for Approve Stays before day activities."
+    );
   }
   return null;
 }
 
 function verifyHard(
   itinerary: ClientItinerary,
-  options: PatchVerifyOptions = {}
+  options: PatchVerifyOptions = {},
+  opIndex = 0
 ): PatchResult | null {
   const stage = ensureWorkflow(itinerary).stage;
   const verified = verifyItineraryStage(itinerary, stage, {
@@ -347,9 +404,156 @@ function verifyHard(
       /exceeds 3\.5h/i.test(error)
   );
   if (blockers.length > 0) {
-    return { ok: false, error: blockers.join("; ") };
+    return failDiag(opIndex, "VERIFIER_BLOCK", blockers.join("; "));
   }
   return null;
+}
+
+type BatchCtx = {
+  /** Maps within-batch temp key → assigned stopId. */
+  tempKeys: Map<string, string>;
+  stopCounter: { next: number };
+};
+
+function resolveStopIndex(
+  itinerary: ClientItinerary,
+  patch: { stopId?: string; stopIndex?: number },
+  ctx: BatchCtx,
+  opIndex: number
+): { ok: true; index: number } | PatchResult {
+  if (patch.stopId) {
+    const mapped = ctx.tempKeys.get(patch.stopId);
+    const id = mapped ?? patch.stopId;
+    const index = itinerary.stops.findIndex((stop) => stop.stopId === id);
+    if (index < 0) {
+      // Temp key referenced before definition
+      if (!mapped && !/^s\d+$/.test(patch.stopId)) {
+        return failDiag(
+          opIndex,
+          "TEMP_KEY_UNDEFINED",
+          `Temp key "${patch.stopId}" is not defined yet in this batch.`
+        );
+      }
+      return failDiag(
+        opIndex,
+        "STOP_NOT_FOUND",
+        `No stop with stopId "${patch.stopId}".`,
+        itinerary.stops.map((s) => s.stopId).filter(Boolean) as string[]
+      );
+    }
+    return { ok: true, index };
+  }
+  if (typeof patch.stopIndex === "number") {
+    if (patch.stopIndex < 0 || patch.stopIndex >= itinerary.stops.length) {
+      return failDiag(
+        opIndex,
+        "STOP_INDEX_OOR",
+        `stopIndex ${patch.stopIndex} is out of range (${itinerary.stops.length} stops).`
+      );
+    }
+    return { ok: true, index: patch.stopIndex };
+  }
+  return failDiag(
+    opIndex,
+    "STOP_REF_REQUIRED",
+    "Patch must include stopId (preferred) or stopIndex."
+  );
+}
+
+function resolveDay(
+  itinerary: ClientItinerary,
+  patch: { dayId?: string; dayNumber?: number },
+  opIndex: number
+): { ok: true; day: ClientItineraryDay } | PatchResult {
+  if (patch.dayId) {
+    const day = itinerary.days.find((row) => row.dayId === patch.dayId);
+    if (!day) {
+      return failDiag(
+        opIndex,
+        "DAY_NOT_FOUND",
+        `No day with dayId "${patch.dayId}".`,
+        itinerary.days.map((d) => d.dayId).filter(Boolean) as string[]
+      );
+    }
+    return { ok: true, day };
+  }
+  if (typeof patch.dayNumber === "number") {
+    const day = itinerary.days.find((row) => row.dayNumber === patch.dayNumber);
+    if (!day) {
+      return failDiag(
+        opIndex,
+        "DAY_NOT_FOUND",
+        `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (${itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)} nights + departure morning).`
+      );
+    }
+    return { ok: true, day };
+  }
+  return failDiag(
+    opIndex,
+    "DAY_REF_REQUIRED",
+    "Patch must include dayId (preferred) or dayNumber."
+  );
+}
+
+function resolveAfterIndex(
+  itinerary: ClientItinerary,
+  patch: { afterStopId?: string; afterIndex?: number },
+  ctx: BatchCtx,
+  opIndex: number
+): { ok: true; insertAt: number } | PatchResult {
+  if (patch.afterStopId) {
+    const mapped = ctx.tempKeys.get(patch.afterStopId);
+    const id = mapped ?? patch.afterStopId;
+    const index = itinerary.stops.findIndex((stop) => stop.stopId === id);
+    if (index < 0) {
+      if (!mapped && !/^s\d+$/.test(patch.afterStopId)) {
+        return failDiag(
+          opIndex,
+          "TEMP_KEY_UNDEFINED",
+          `Temp key "${patch.afterStopId}" is not defined yet in this batch.`
+        );
+      }
+      return failDiag(
+        opIndex,
+        "STOP_NOT_FOUND",
+        `afterStopId "${patch.afterStopId}" not found.`
+      );
+    }
+    return { ok: true, insertAt: index + 1 };
+  }
+  const afterIndex = patch.afterIndex ?? -1;
+  if (afterIndex < -1 || afterIndex >= itinerary.stops.length) {
+    return failDiag(
+      opIndex,
+      "AFTER_INDEX_OOR",
+      `afterIndex ${afterIndex} is out of range.`
+    );
+  }
+  return { ok: true, insertAt: afterIndex + 1 };
+}
+
+/**
+ * Soft auto-advance: when stays/days verifier is clean, auto-approve and advance.
+ * NEVER auto-approve stops.
+ */
+export function maybeSoftAutoAdvance(
+  itinerary: ClientItinerary,
+  options: PatchVerifyOptions = {}
+): ClientItinerary {
+  let current = itinerary;
+  for (let guard = 0; guard < 2; guard++) {
+    const workflow = ensureWorkflow(current);
+    if (workflow.stage !== "stays" && workflow.stage !== "days") {
+      break;
+    }
+    const gate = verifyItineraryStage(current, workflow.stage, {
+      forApprove: true,
+      placePolicies: options.placePolicies,
+    });
+    if (!gate.ok) break;
+    current = approveCurrentStage(current, { by: "auto", bump: false });
+  }
+  return current;
 }
 
 export function applyItineraryPatch(
@@ -361,7 +565,7 @@ export function applyItineraryPatch(
   return applyItineraryPatches(previous, [patch], binder, options);
 }
 
-/** Apply ops in order on one itinerary snapshot (avoids parallel lost-updates). */
+/** Apply ops atomically — any failure rejects the whole batch. */
 export function applyItineraryPatches(
   previous: ClientItinerary,
   patches: ItineraryPatch[],
@@ -369,30 +573,51 @@ export function applyItineraryPatches(
   options: PatchVerifyOptions = {}
 ): PatchResult {
   if (patches.length === 0) {
-    return { ok: false, error: "patches must contain at least one op." };
+    return failDiag(-1, "EMPTY_BATCH", "patches must contain at least one op.");
   }
-  let current = previous;
-  const omitted: string[] = [];
+
+  // Pre-scan temp keys for duplicates
+  const seenKeys = new Set<string>();
   for (let i = 0; i < patches.length; i++) {
-    const result = applyOneItineraryPatch(current, patches[i], binder, options);
+    const patch = patches[i];
+    if (patch.op === "addStop" && patch.key) {
+      if (seenKeys.has(patch.key)) {
+        return failDiag(
+          i,
+          "DUPLICATE_TEMP_KEY",
+          `Temp key "${patch.key}" is used more than once in this batch.`
+        );
+      }
+      seenKeys.add(patch.key);
+    }
+  }
+
+  let current = ensureArtifactIds(structuredClone(previous) as ClientItinerary);
+  const ctx: BatchCtx = {
+    tempKeys: new Map(),
+    stopCounter: { next: nextStopIdCounter(current.stops) },
+  };
+
+  for (let i = 0; i < patches.length; i++) {
+    const result = applyOneItineraryPatch(current, patches[i], binder, options, ctx, i);
     if (!result.ok) {
-      return {
-        ok: false,
-        error: `patches[${i}] (${patches[i].op}): ${result.error}`,
-        omitted: [...omitted, ...(result.omitted ?? [])],
-      };
+      return result;
     }
     current = result.itinerary;
-    omitted.push(...result.omitted);
   }
-  return { ok: true, itinerary: current, omitted };
+
+  current = bumpVersion(current);
+  current = maybeSoftAutoAdvance(current, options);
+  return { ok: true, itinerary: current };
 }
 
 function applyOneItineraryPatch(
   previous: ClientItinerary,
   patch: ItineraryPatch,
-  binder?: TurnEntityBinder,
-  options: PatchVerifyOptions = {}
+  binder: TurnEntityBinder | undefined,
+  options: PatchVerifyOptions,
+  ctx: BatchCtx,
+  opIndex: number
 ): PatchResult {
   const itinerary = structuredClone(previous) as ClientItinerary;
   const workflow = ensureWorkflow(itinerary);
@@ -400,54 +625,77 @@ function applyOneItineraryPatch(
   itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
   itinerary.durationDays = nightsSum(itinerary.stops);
 
-  const blocked = stageBlocksOp(workflow.stage, patch.op);
+  const blocked = stageBlocksOp(workflow.stage, patch.op, opIndex);
   if (blocked) return blocked;
 
-  const failIndex = (index: number, noun: string): PatchResult | null => {
-    if (index < 0 || index >= itinerary.stops.length) {
-      return { ok: false, error: `${noun} ${index} is out of range (${itinerary.stops.length} stops).` };
-    }
-    return null;
-  };
-
   switch (patch.op) {
-    case "setStopHotel":
-    case "proposeStay": {
-      const bad = failIndex(patch.stopIndex, "stopIndex");
-      if (bad) return bad;
-      const kindBad = kindFail(patch.hotelId, "hotel");
+    case "setStopHotel": {
+      const resolved = resolveStopIndex(itinerary, patch, ctx, opIndex);
+      if (!("index" in resolved)) return resolved;
+      const kindBad = kindFail(patch.hotelId, "hotel", opIndex);
       if (kindBad) return kindBad;
       const hotelId = asDid(patch.hotelId);
-      itinerary.stops[patch.stopIndex] = {
-        ...itinerary.stops[patch.stopIndex],
+      itinerary.stops[resolved.index] = {
+        ...itinerary.stops[resolved.index],
         hotelId,
         hotelName: labelFromBinder(
           binder,
           hotelId,
           "hotel",
-          patch.hotelName || itinerary.stops[patch.stopIndex].hotelName || "Hotel"
+          patch.hotelName || itinerary.stops[resolved.index].hotelName || "Hotel"
         ),
       };
-      return parseKeep(itinerary);
+      Object.assign(itinerary, clearApprovalsAfterHotelChange(itinerary));
+      return parseKeep(itinerary, opIndex);
     }
     case "setStopNights": {
-      const bad = failIndex(patch.stopIndex, "stopIndex");
-      if (bad) return bad;
-      itinerary.stops[patch.stopIndex] = {
-        ...itinerary.stops[patch.stopIndex],
+      const resolved = resolveStopIndex(itinerary, patch, ctx, opIndex);
+      if (!("index" in resolved)) return resolved;
+      const prevNights = itinerary.stops[resolved.index].nights;
+      if (
+        patch.nights < prevNights &&
+        nightsShrinkWouldLoseBlocks(
+          itinerary.stops,
+          itinerary.days,
+          resolved.index,
+          patch.nights
+        ) &&
+        !patch.confirmShrink
+      ) {
+        return failDiag(
+          opIndex,
+          "NIGHTS_SHRINK_NEEDS_CONFIRM",
+          `Reducing nights from ${prevNights} to ${patch.nights} would drop day cards with blocks. Re-submit with confirmShrink:true (lost day content will be discarded; remaining days for this stop may be marked stale).`
+        );
+      }
+      itinerary.stops[resolved.index] = {
+        ...itinerary.stops[resolved.index],
         nights: patch.nights,
       };
+      if (patch.nights < prevNights && patch.confirmShrink) {
+        const stopId = itinerary.stops[resolved.index].stopId;
+        itinerary.days = itinerary.days.map((day) =>
+          (stopId && day.stopId === stopId) || day.stopIndex === resolved.index
+            ? { ...day, stale: true }
+            : day
+        );
+      }
       itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
       itinerary.durationDays = nightsSum(itinerary.stops);
-      return verifyHard(itinerary, options) ?? { ok: true, itinerary, omitted: [] };
+      Object.assign(itinerary, clearApprovalsAfterStopsChange(itinerary));
+      return verifyHard(itinerary, options, opIndex) ?? { ok: true, itinerary };
     }
     case "addStop": {
-      if (patch.afterIndex < -1 || patch.afterIndex >= itinerary.stops.length) {
-        return { ok: false, error: `afterIndex ${patch.afterIndex} is out of range.` };
-      }
-      const insertAt = patch.afterIndex + 1;
+      const after = resolveAfterIndex(itinerary, patch, ctx, opIndex);
+      if (!("insertAt" in after)) return after;
+      const insertAt = after.insertAt;
       const oldCount = itinerary.stops.length;
+      const stopId = allocateStopId(itinerary.stops, ctx.stopCounter);
+      if (patch.key) {
+        ctx.tempKeys.set(patch.key, stopId);
+      }
       const draftStop: ClientItineraryStop = {
+        stopId,
         placeId: patch.placeId,
         placeName: patch.placeName?.trim() || "Place",
         nights: patch.nights,
@@ -463,7 +711,7 @@ function applyOneItineraryPatch(
         (index) => (index >= insertAt ? index + 1 : index)
       );
       itinerary.durationDays = nightsSum(itinerary.stops);
-      const kindBad = kindFail(patch.placeId, "destination");
+      const kindBad = kindFail(patch.placeId, "destination", opIndex);
       if (kindBad) return kindBad;
       itinerary.stops[insertAt] = {
         ...itinerary.stops[insertAt],
@@ -475,16 +723,21 @@ function applyOneItineraryPatch(
           patch.placeName || "Place"
         ),
       };
-      return verifyHard(itinerary, options) ?? parseKeep(itinerary);
+      Object.assign(itinerary, clearApprovalsAfterStopsChange(itinerary));
+      return verifyHard(itinerary, options, opIndex) ?? parseKeep(itinerary, opIndex);
     }
     case "removeStop": {
-      const bad = failIndex(patch.stopIndex, "stopIndex");
-      if (bad) return bad;
+      const resolved = resolveStopIndex(itinerary, patch, ctx, opIndex);
+      if (!("index" in resolved)) return resolved;
       if (itinerary.stops.length === 1) {
-        return { ok: false, error: "Cannot remove the last overnight stop." };
+        return failDiag(
+          opIndex,
+          "LAST_STOP",
+          "Cannot remove the last overnight stop."
+        );
       }
       const oldCount = itinerary.stops.length;
-      const removed = patch.stopIndex;
+      const removed = resolved.index;
       itinerary.stops = itinerary.stops.filter((_, index) => index !== removed);
       itinerary.days = syncDaysToNights(
         itinerary.stops,
@@ -505,40 +758,45 @@ function applyOneItineraryPatch(
         }
       );
       itinerary.durationDays = nightsSum(itinerary.stops);
-      return verifyHard(itinerary, options) ?? { ok: true, itinerary, omitted: [] };
+      Object.assign(itinerary, clearApprovalsAfterStopsChange(itinerary));
+      return verifyHard(itinerary, options, opIndex) ?? { ok: true, itinerary };
     }
     case "replaceStopPlace": {
-      const bad = failIndex(patch.stopIndex, "stopIndex");
-      if (bad) return bad;
-      const kindBad = kindFail(patch.placeId, "destination");
+      const resolved = resolveStopIndex(itinerary, patch, ctx, opIndex);
+      if (!("index" in resolved)) return resolved;
+      const kindBad = kindFail(patch.placeId, "destination", opIndex);
       if (kindBad) return kindBad;
       const placeId = asDid(patch.placeId);
-      itinerary.stops[patch.stopIndex] = {
+      const stopId = itinerary.stops[resolved.index].stopId;
+      itinerary.stops[resolved.index] = {
+        stopId,
         placeId,
         placeName: labelFromBinder(
           binder,
           placeId,
           "destination",
-          patch.placeName || itinerary.stops[patch.stopIndex].placeName
+          patch.placeName || itinerary.stops[resolved.index].placeName
         ),
-        nights: itinerary.stops[patch.stopIndex].nights,
+        nights: itinerary.stops[resolved.index].nights,
         hotelId: undefined,
         hotelName: undefined,
       };
+      // Flag day blocks on this stop as stale (hotel already cleared).
+      itinerary.days = itinerary.days.map((day) =>
+        (stopId && day.stopId === stopId) || day.stopIndex === resolved.index
+          ? { ...day, stale: true }
+          : day
+      );
       itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
-      return verifyHard(itinerary, options) ?? parseKeep(itinerary);
+      Object.assign(itinerary, clearApprovalsAfterStopsChange(itinerary));
+      return verifyHard(itinerary, options, opIndex) ?? parseKeep(itinerary, opIndex);
     }
-    case "setDayBlocks":
-    case "proposeDay": {
-      const day = itinerary.days.find((row) => row.dayNumber === patch.dayNumber);
-      if (!day) {
-        return {
-          ok: false,
-          error: `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (${itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)} nights + departure morning).`,
-        };
-      }
+    case "setDayBlocks": {
+      const resolved = resolveDay(itinerary, patch, opIndex);
+      if (!("day" in resolved)) return resolved;
+      const day = resolved.day;
       for (const block of patch.blocks) {
-        const kindBad = kindFail(block.entityId, block.entityKind);
+        const kindBad = kindFail(block.entityId, block.entityKind, opIndex);
         if (kindBad) return kindBad;
       }
       const nextDay: ClientItineraryDay = {
@@ -546,11 +804,14 @@ function applyOneItineraryPatch(
         title: patch.title?.trim() || day.title,
         description: patch.description ?? day.description,
         blocks: patch.blocks.map((block) => pendingBlock(block, binder)),
+        stale: undefined,
       };
       itinerary.days = itinerary.days.map((row) =>
-        row.dayNumber === patch.dayNumber ? nextDay : row
+        (day.dayId && row.dayId === day.dayId) || row.dayNumber === day.dayNumber
+          ? nextDay
+          : row
       );
-      return parseKeep(itinerary);
+      return parseKeep(itinerary, opIndex);
     }
     case "setTransit": {
       const transfers = [...(itinerary.transfers ?? [])];
@@ -566,7 +827,7 @@ function applyOneItineraryPatch(
         mode: patch.mode,
         durationHours: patch.durationHours,
         note: patch.note,
-        routeId: patch.routeId,
+        transportOptionIri: patch.transportOptionIri,
         fromPlaceName: patch.fromPlaceName,
         toPlaceName: patch.toPlaceName,
       };
@@ -576,18 +837,14 @@ function applyOneItineraryPatch(
         transfers.push(next);
       }
       itinerary.transfers = transfers;
-      return verifyHard(itinerary, options) ?? { ok: true, itinerary, omitted: [] };
+      return verifyHard(itinerary, options, opIndex) ?? { ok: true, itinerary };
     }
     case "setDayCopy": {
-      const day = itinerary.days.find((row) => row.dayNumber === patch.dayNumber);
-      if (!day) {
-        return {
-          ok: false,
-          error: `No day ${patch.dayNumber}. This trip has days 1–${itinerary.days.at(-1)?.dayNumber ?? 0} (${itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0)} nights + departure morning).`,
-        };
-      }
+      const resolved = resolveDay(itinerary, patch, opIndex);
+      if (!("day" in resolved)) return resolved;
+      const day = resolved.day;
       itinerary.days = itinerary.days.map((row) =>
-        row.dayNumber === patch.dayNumber
+        (day.dayId && row.dayId === day.dayId) || row.dayNumber === day.dayNumber
           ? {
               ...row,
               title: patch.title?.trim() || row.title,
@@ -596,28 +853,55 @@ function applyOneItineraryPatch(
             }
           : row
       );
-      return { ok: true, itinerary, omitted: [] };
+      return { ok: true, itinerary };
     }
     case "setSummary":
       itinerary.summary = patch.summary;
-      return { ok: true, itinerary, omitted: [] };
+      return { ok: true, itinerary };
     case "setTitle":
       itinerary.title = patch.title;
-      return { ok: true, itinerary, omitted: [] };
+      return { ok: true, itinerary };
     case "setStartDate":
       itinerary.startDate = patch.startDate.trim() || undefined;
-      return { ok: true, itinerary, omitted: [] };
+      return { ok: true, itinerary };
     default: {
       const _never: never = patch;
-      return { ok: false, error: `Unknown op: ${String(_never)}` };
+      return failDiag(opIndex, "UNKNOWN_OP", `Unknown op: ${String(_never)}`);
     }
   }
 }
 
+function validateTransferIndices(
+  stopCount: number,
+  transfers: ProposeStops["transfers"] | undefined
+): PatchResult | null {
+  if (!transfers?.length) return null;
+  for (let i = 0; i < transfers.length; i++) {
+    const transfer = transfers[i]!;
+    if (
+      transfer.fromStopIndex !== -1 &&
+      (transfer.fromStopIndex < 0 || transfer.fromStopIndex >= stopCount)
+    ) {
+      return failDiag(
+        i,
+        "TRANSFER_INDEX_OOR",
+        `transfers[${i}].fromStopIndex ${transfer.fromStopIndex} is out of range (${stopCount} stops; use -1 for arrival).`
+      );
+    }
+    if (transfer.toStopIndex < 0 || transfer.toStopIndex > stopCount) {
+      return failDiag(
+        i,
+        "TRANSFER_INDEX_OOR",
+        `transfers[${i}].toStopIndex ${transfer.toStopIndex} is out of range (0..${stopCount}; ${stopCount} = departure).`
+      );
+    }
+  }
+  return null;
+}
 
-export function materializeRoute(
+export function materializeStops(
   title: string,
-  draft: ProposeRoute,
+  draft: ProposeStops,
   binder?: TurnEntityBinder,
   options: PatchVerifyOptions = {}
 ): PatchResult {
@@ -631,35 +915,41 @@ export function materializeRoute(
     options.placePolicies
   );
   if (!fitted.ok) {
-    return { ok: false, error: fitted.error };
+    return failDiag(0, "TRIP_LENGTH", fitted.error);
   }
   const stops = fitted.stops;
+  const transferFail = validateTransferIndices(stops.length, draft.transfers);
+  if (transferFail) return transferFail;
 
-  const pending: ClientItinerary = {
+  const pending: ClientItinerary = ensureArtifactIds({
     title: draft.title?.trim() || title,
     summary: draft.summary ?? "",
     durationDays: calendarDayCount(stops),
     startDate: draft.startDate,
+    version: 1,
+    schemaVersion: 2,
     stops,
     days: [],
     transfers: draft.transfers ?? [],
-    workflow: { stage: "route", approved: {} },
-  };
+    workflow: { stage: "stops", approved: {} },
+  });
   pending.days = stubDaysForStops(pending.stops);
   const bound = bindAndKeep(pending, binder, "stop");
   if (!bound.ok) return bound;
   const next = withWorkflow(
-    {
+    ensureArtifactIds({
       ...bound.itinerary,
       durationDays: calendarDayCount(bound.itinerary.stops),
       days:
         bound.itinerary.days.length > 0
           ? bound.itinerary.days
           : stubDaysForStops(bound.itinerary.stops),
-    },
-    { stage: "route", approved: {} }
+      version: 1,
+      schemaVersion: 2,
+    }),
+    { stage: "stops", approved: {} }
   );
-  return verifyHard(next, options) ?? { ok: true, itinerary: next, omitted: bound.omitted };
+  return verifyHard(next, options) ?? { ok: true, itinerary: next };
 }
 
 /**
@@ -829,7 +1119,7 @@ function removeNightsWithinBands(
   return removed;
 }
 
-function claimedTripDays(title: string, draft: ProposeRoute): number | null {
+function claimedTripDays(title: string, draft: ProposeStops): number | null {
   const text = `${title} ${draft.title ?? ""} ${draft.summary ?? ""}`;
   const named = text.match(/\b(\d{1,2})\s*[-–]?\s*days?\b/i);
   if (named) {

@@ -90,11 +90,11 @@ const sample: ClientItinerary = {
     },
   ],
   days: [],
-  workflow: { stage: "route", approved: {} },
+  workflow: { stage: "stops", approved: {} },
 };
 
 describe("itinerary stages", () => {
-  it("projects route without hotels/blocks", () => {
+  it("projects stops without hotels/blocks", () => {
     const withHotel: ClientItinerary = {
       ...sample,
       stops: [
@@ -122,16 +122,16 @@ describe("itinerary stages", () => {
         },
       ],
     };
-    const route = projectToStage(withHotel, "route");
+    const route = projectToStage(withHotel, "stops");
     assert.equal(route.stops[0].hotelId, undefined);
     assert.equal(route.days.every((d) => (d.blocks?.length ?? 0) === 0), true);
-    assert.equal(ensureWorkflow(route).stage, "route");
+    assert.equal(ensureWorkflow(route).stage, "stops");
   });
 
-  it("approves route → stays", () => {
+  it("approves stops → stays", () => {
     const next = approveCurrentStage(sample);
     assert.equal(ensureWorkflow(next).stage, "stays");
-    assert.ok(ensureWorkflow(next).approved.route);
+    assert.ok(ensureWorkflow(next).approved.stops);
     assert.equal(ensureWorkflow(next).approved.stays, undefined);
     assert.equal(ensureWorkflow(next).approved.days, undefined);
   });
@@ -165,17 +165,17 @@ describe("itinerary stages", () => {
         },
       ],
     };
-    assert.equal(ensureWorkflow(filled).stage, "route");
+    assert.equal(ensureWorkflow(filled).stage, "stops");
     const next = approveCurrentStage(filled);
     assert.equal(ensureWorkflow(next).stage, "stays");
   });
 
-  it("reopens route and clears later approvals", () => {
+  it("reopens stops and clears later approvals", () => {
     let cur = approveCurrentStage(sample);
     cur = approveCurrentStage(cur);
     assert.equal(ensureWorkflow(cur).stage, "days");
-    cur = reopenStage(cur, "route");
-    assert.equal(ensureWorkflow(cur).stage, "route");
+    cur = reopenStage(cur, "stops");
+    assert.equal(ensureWorkflow(cur).stage, "stops");
     assert.equal(ensureWorkflow(cur).approved.stays, undefined);
   });
 
@@ -195,7 +195,7 @@ describe("itinerary stages", () => {
         },
       ],
     };
-    const result = verifyItineraryStage(bad, "route", {
+    const result = verifyItineraryStage(bad, "stops", {
       placePolicies: testPolicies,
     });
     assert.equal(result.ok, false);
@@ -216,7 +216,7 @@ describe("itinerary stages", () => {
         },
       ],
     };
-    const result = verifyItineraryStage(fake, "route", {
+    const result = verifyItineraryStage(fake, "stops", {
       placePolicies: testPolicies,
     });
     assert.equal(result.errors.some((e) => /stay-min/i.test(e)), false);
@@ -227,7 +227,7 @@ describe("itinerary stages", () => {
       ...sample,
       stops: [{ ...sample.stops[1], nights: 2 }],
     };
-    const result = verifyItineraryStage(short, "route", {
+    const result = verifyItineraryStage(short, "stops", {
       placePolicies: testPolicies,
     });
     assert.equal(result.ok, false);
@@ -239,7 +239,7 @@ describe("itinerary stages", () => {
       ...sample,
       stops: [{ ...sample.stops[1], nights: 6 }],
     };
-    const result = verifyItineraryStage(long, "route", {
+    const result = verifyItineraryStage(long, "stops", {
       placePolicies: testPolicies,
     });
     assert.equal(result.ok, false);
@@ -251,7 +251,7 @@ describe("itinerary stages", () => {
       ...sample,
       stops: [{ ...sample.stops[1], nights: 4 }],
     };
-    const result = verifyItineraryStage(offRec, "route", {
+    const result = verifyItineraryStage(offRec, "stops", {
       placePolicies: testPolicies,
     });
     assert.equal(result.ok, true);
@@ -265,7 +265,7 @@ describe("itinerary stages", () => {
     const stays: ClientItinerary = {
       ...sample,
       transfers: [],
-      workflow: { stage: "stays", approved: { route: "x" } },
+      workflow: { stage: "stays", approved: { stops: { at: "x", by: "human" } } },
     };
     const display = verifyItineraryStage(stays, "stays", {
       placePolicies: testPolicies,

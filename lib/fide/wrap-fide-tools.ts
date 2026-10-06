@@ -8,6 +8,7 @@ import {
   normalizeViewKey,
 } from "@/lib/fide/agent-views";
 import { enrichPayloadWithEntityComments } from "@/lib/fide/entity-comments-enrich";
+import { dedupePlaceDescriptionAdvisorNote } from "@/lib/fide/place-payload-dedupe";
 
 function extractToolText(result: unknown): string {
   if (typeof result === "string") {
@@ -59,10 +60,43 @@ function textToolResult(message: string): unknown {
   };
 }
 
+function applyPlaceDedupe(result: unknown): unknown {
+  if (typeof result === "string") {
+    return dedupePlaceDescriptionAdvisorNote(result);
+  }
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  if (Array.isArray(record.content)) {
+    return {
+      ...record,
+      content: record.content.map((part) => {
+        if (
+          part &&
+          typeof part === "object" &&
+          (part as { type?: string }).type === "text" &&
+          typeof (part as { text?: string }).text === "string"
+        ) {
+          return {
+            ...part,
+            text: dedupePlaceDescriptionAdvisorNote(
+              (part as { text: string }).text
+            ) as string,
+          };
+        }
+        return part;
+      }),
+    };
+  }
+  return dedupePlaceDescriptionAdvisorNote(result);
+}
+
 /**
- * Wrap Fide MCP tools:
- * - hide/refuse unbounded inventory dumps for the agent
- * - harvest run_view rows into the turn entity allowlist (except templates)
+ * Wrap Fide MCP tools for the itinerary agent:
+ * - allowlist-only list_views / run_view (UI dumps stay on Context)
+ * - exact description/advisor_note dedupe on place payloads
+ * - harvest run_view rows into the turn entity allowlist
  * - append local EntityComment notes for any fide ids in the result
  */
 export function wrapFideToolsWithBinder(
@@ -94,7 +128,17 @@ export function wrapFideToolsWithBinder(
           return textToolResult(blockedViewError(viewKey));
         }
 
-        const result = await originalRun(input, options);
+        let result = await originalRun(input, options);
+
+        if (
+          viewKey === "inventory/places-search" ||
+          viewKey === "inventory/place" ||
+          viewKey === "inventory/hotel" ||
+          viewKey === "inventory/hotels-by-city"
+        ) {
+          result = applyPlaceDedupe(result);
+        }
+
         if (viewKey && !isNonBindableInventoryView(viewKey)) {
           binder.harvestRunView(viewKey, extractToolText(result));
         }

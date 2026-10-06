@@ -174,14 +174,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // run_query requires every $param referenced in SQL — fill legacy empties.
+    // run_query requires every $param referenced in SQL — fill optional/legacy empties.
+    // Events list (`inventory/events-featured`) needs $city; empty = all featured events.
     for (const key of [
       "hotel_iri",
       "place_iri",
       "activity_iri",
       "attraction_iri",
+      "event_iri",
+      "restaurant_iri",
+      "collection_iri",
+      "itinerary_iri",
+      "option_iri",
       "fideId",
       "subjectFingerprint",
+      "city",
     ]) {
       if (!(key in params)) {
         params[key] = "";
@@ -196,6 +203,21 @@ export async function POST(request: Request) {
         params,
       },
     });
+
+    if (
+      result &&
+      typeof result === "object" &&
+      (result as { isError?: unknown }).isError === true
+    ) {
+      const parsedError = parseMcpJsonText(result);
+      const message =
+        parsedError &&
+        typeof parsedError === "object" &&
+        typeof (parsedError as { text?: unknown }).text === "string"
+          ? (parsedError as { text: string }).text
+          : "World model query failed";
+      return new ChatbotError("bad_request:api", message).toResponse();
+    }
 
     const parsed = parseMcpJsonText(result);
     const entityComments = await loadCommentsForPayload(parsed);

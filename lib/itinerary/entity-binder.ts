@@ -14,12 +14,16 @@ export type AllowlistEntity = {
   source?: string;
 };
 
+/** Optional WM existence gate — kind is still validated from hex. */
+export type ExistCheckFn = (id: string, kind: PeekEntityKind) => boolean;
+
 export type TurnEntityBinder = {
   add: (entity: AllowlistEntity) => void;
   addMany: (entities: AllowlistEntity[]) => void;
   harvestRunView: (viewKey: string, output: unknown) => number;
   list: () => AllowlistEntity[];
   contextForPrompt: () => string;
+  setExistCheck: (fn: ExistCheckFn | undefined) => void;
   bind: (itinerary: ClientItinerary) => {
     itinerary: ClientItinerary;
     bound: number;
@@ -264,8 +268,8 @@ function kindMatchesFideId(kind: PeekEntityKind, id: string): boolean {
 }
 
 /**
- * Trust an already-typed Fide id (e.g. golden fixture) even if run_view did not
- * harvest it this turn. Still rejects invented Catalina IRIs / bare names.
+ * Trust an already-typed Fide id. Harvest allowlist supplies labels only —
+ * invent-id defense is kind-from-hex, not harvest membership.
  */
 function acceptSuppliedFideId(
   id: string | undefined,
@@ -296,35 +300,51 @@ function findById(
   );
 }
 
+/**
+ * Resolve by Fide id + kind from hex. Harvest list is labels only.
+ * Optional existCheck rejects ids the WM says do not exist.
+ */
 function resolveById(
   entities: AllowlistEntity[],
   id: string | undefined,
   name: string,
-  kind: PeekEntityKind
+  kind: PeekEntityKind,
+  existCheck?: (id: string, kind: PeekEntityKind) => boolean
 ): AllowlistEntity | null {
-  if (!id) return null;
-  return (
-    findById(entities, id, kind) ?? acceptSuppliedFideId(id, name, kind)
-  );
+  const accepted = acceptSuppliedFideId(id, name, kind);
+  if (!accepted) return null;
+  if (existCheck && !existCheck(accepted.fideId, kind)) {
+    return null;
+  }
+  const harvested = findById(entities, accepted.fideId) ?? findById(entities, accepted.fideId, kind);
+  return {
+    fideId: accepted.fideId,
+    name: harvested?.name?.trim() || accepted.name,
+    kind,
+  };
 }
 
 /**
- * Bind itinerary entities by Fide id only.
- * Display names are labels; a wrong name never overrides placeId/hotelId/entityId.
+ * Bind itinerary entities by Fide id kind (hex) only.
+ * Display names / harvest are labels; a wrong name never overrides placeId/hotelId/entityId.
+ * Harvest is NOT an invent-id gate.
  */
 export function bindItineraryToAllowlist(
   itinerary: ClientItinerary,
-  entities: AllowlistEntity[]
+  entities: AllowlistEntity[],
+  options?: { existCheck?: ExistCheckFn }
 ): { itinerary: ClientItinerary; bound: number; omitted: string[] } {
   const omitted: string[] = [];
   let bound = 0;
+  const existCheck = options?.existCheck;
 
   const stops = itinerary.stops.flatMap((stop, index) => {
     const place = resolveById(
       entities,
       stop.placeId,
       stop.placeName,
-      "destination"
+      "destination",
+      existCheck
     );
     if (!place) {
       omitted.push(`stop ${index + 1} "${stop.placeName}"`);
@@ -339,7 +359,8 @@ export function bindItineraryToAllowlist(
         entities,
         hotelId,
         hotelName || "",
-        "hotel"
+        "hotel",
+        existCheck
       );
       if (hotel) {
         hotelId = hotel.fideId;
@@ -356,6 +377,7 @@ export function bindItineraryToAllowlist(
 
     return [
       {
+        stopId: stop.stopId,
         placeId: place.fideId,
         placeName: place.name,
         nights: stop.nights < 1 ? 1 : stop.nights,
@@ -371,7 +393,8 @@ export function bindItineraryToAllowlist(
       entities,
       stop.placeId,
       stop.placeName,
-      "destination"
+      "destination",
+      existCheck
     );
     if (place) {
       keptOldIndexes.push(index);
@@ -391,7 +414,8 @@ export function bindItineraryToAllowlist(
           entities,
           block.entityId,
           block.entityName || block.title || "",
-          kind
+          kind,
+          existCheck
         );
         if (!matched) {
           omitted.push(
@@ -409,13 +433,17 @@ export function bindItineraryToAllowlist(
           entityKind: matched.kind,
         });
       }
+      const newStopIndex = indexMap.get(day.stopIndex) ?? 0;
       return {
         dayNumber: day.dayNumber,
-        stopIndex: indexMap.get(day.stopIndex) ?? 0,
+        dayId: day.dayId,
+        stopIndex: newStopIndex,
+        stopId: stops[newStopIndex]?.stopId ?? day.stopId,
         title: day.title,
         description: day.description ?? "",
         transitNote: day.transitNote,
         blocks,
+        ...(day.stale ? { stale: true as const } : {}),
       };
     });
 
@@ -461,9 +489,12 @@ export function formatAllowlistForPrompt(entities: AllowlistEntity[]): string {
   return lines.join("\n");
 }
 
-export function createTurnEntityBinder(): TurnEntityBinder {
+export function createTurnEntityBinder(options?: {
+  existCheck?: ExistCheckFn;
+}): TurnEntityBinder {
   const entities: AllowlistEntity[] = [];
   const seen = new Set<string>();
+  let existCheck = options?.existCheck;
 
   const add = (entity: AllowlistEntity) => {
     const fideId = normalizeDid(entity.fideId);
@@ -490,6 +521,10 @@ export function createTurnEntityBinder(): TurnEntityBinder {
     },
     list: () => [...entities],
     contextForPrompt: () => formatAllowlistForPrompt(entities),
-    bind: (itinerary) => bindItineraryToAllowlist(itinerary, entities),
+    setExistCheck: (fn) => {
+      existCheck = fn;
+    },
+    bind: (itinerary) =>
+      bindItineraryToAllowlist(itinerary, entities, { existCheck }),
   };
 }

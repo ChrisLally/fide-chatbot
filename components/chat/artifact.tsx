@@ -155,6 +155,7 @@ function PureArtifact({
   selectedModelId: _selectedModelId,
   isWorldModelVisible,
   setWorldModelVisible,
+  panelTabIntent,
 }: {
   addToolApprovalResponse: UseChatHelpers<ChatMessage>["addToolApprovalResponse"];
   chatId: string;
@@ -173,6 +174,7 @@ function PureArtifact({
   selectedModelId: string;
   isWorldModelVisible: boolean;
   setWorldModelVisible: Dispatch<SetStateAction<boolean>>;
+  panelTabIntent?: { tab: "artifact" | "world-model"; nonce: number } | null;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
   const {
@@ -512,11 +514,23 @@ function PureArtifact({
     }
   }, [artifact.isVisible, isWorldModelVisible]);
 
+  useEffect(() => {
+    if (!panelTabIntent) {
+      return;
+    }
+    setActiveTab(panelTabIntent.tab);
+  }, [panelTabIntent]);
+
   const isPanelVisible = artifact.isVisible || isWorldModelVisible;
-  const showArtifactTab = artifact.isVisible;
-  const showWorldModelTab = isPanelVisible;
+  const hasItineraryContent =
+    artifact.documentId !== "init" &&
+    (Boolean(artifact.content?.trim()) || artifact.status === "streaming");
   const currentTab =
-    activeTab === "artifact" && showArtifactTab ? "artifact" : "world-model";
+    activeTab === "artifact" && artifact.isVisible
+      ? "artifact"
+      : isWorldModelVisible
+        ? "world-model"
+        : "artifact";
 
   if (!isPanelVisible && !isMobile) {
     return (
@@ -544,7 +558,9 @@ function PureArtifact({
       setArtifact((currentArtifact) =>
         currentArtifact.status === "streaming"
           ? { ...currentArtifact, isVisible: false }
-          : { ...initialArtifactData, status: "idle" }
+          : currentArtifact.documentId === "init"
+            ? { ...initialArtifactData, status: "idle" }
+            : { ...currentArtifact, isVisible: false }
       );
       if (isWorldModelVisible) {
         setActiveTab("world-model");
@@ -1004,7 +1020,7 @@ function PureArtifact({
     </>
   );
 
-  const artifactPanel = (
+  const artifactPanel = hasItineraryContent ? (
     <>
       <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -1119,39 +1135,58 @@ function PureArtifact({
         )}
       </AnimatePresence>
     </>
+  ) : (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-background px-8 text-center">
+      <div className="flex size-12 items-center justify-center rounded-full bg-muted/60 text-muted-foreground">
+        <FileTextIcon className="size-5" />
+      </div>
+      <div className="max-w-sm space-y-1.5">
+        <h2 className="text-sm font-semibold tracking-tight">
+          No itinerary yet
+        </h2>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Ask Taylor to draft overnight stops for this trip. The itinerary
+          will show up here so you can review and Approve Stops.
+        </p>
+      </div>
+    </div>
   );
 
   const panel = (
     <>
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-border/50 bg-sidebar px-3">
         <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-1">
-          {showArtifactTab ? (
-            <button
-              className={tabButtonClass("artifact")}
-              onClick={() => setActiveTab("artifact")}
-              type="button"
-            >
-              <FileTextIcon className="size-3.5" />
-              Document
-            </button>
-          ) : null}
-          {showWorldModelTab ? (
-            <button
-              className={tabButtonClass("world-model")}
-              onClick={() => {
-                setWorldModelVisible(true);
-                setActiveTab("world-model");
-              }}
-              type="button"
-            >
-              <DatabaseIcon className="size-3.5" />
-              Context
-            </button>
-          ) : null}
+          <button
+            className={tabButtonClass("artifact")}
+            onClick={() => {
+              setArtifact((current) => ({
+                ...current,
+                isVisible: true,
+                kind:
+                  current.documentId === "init" ? "itinerary" : current.kind,
+              }));
+              setActiveTab("artifact");
+            }}
+            type="button"
+          >
+            <FileTextIcon className="size-3.5" />
+            Itinerary
+          </button>
+          <button
+            className={tabButtonClass("world-model")}
+            onClick={() => {
+              setWorldModelVisible(true);
+              setActiveTab("world-model");
+            }}
+            type="button"
+          >
+            <DatabaseIcon className="size-3.5" />
+            Context
+          </button>
         </div>
         <button
           aria-label={
-            currentTab === "artifact" ? "Close document" : "Close context"
+            currentTab === "artifact" ? "Close itinerary" : "Close context"
           }
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           onClick={closeCurrentTab}
@@ -1217,6 +1252,12 @@ export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
     return false;
   }
   if (prevProps.isWorldModelVisible !== nextProps.isWorldModelVisible) {
+    return false;
+  }
+  if (prevProps.panelTabIntent?.nonce !== nextProps.panelTabIntent?.nonce) {
+    return false;
+  }
+  if (prevProps.panelTabIntent?.tab !== nextProps.panelTabIntent?.tab) {
     return false;
   }
 

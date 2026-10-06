@@ -11,8 +11,8 @@ export type TransferSlot = {
   toLabel: string;
   fromPlaceId?: string;
   toPlaceId?: string;
-  /** Graph `#route=…` IRI when known or guessed from place slugs. */
-  routeId?: string;
+  /** Transport corridor option IRI from inventory/transport-corridor. */
+  transportOptionIri?: string;
   transfer?: ItineraryTransfer;
 };
 
@@ -93,9 +93,8 @@ export function transferSlots(itinerary: ClientItinerary): TransferSlot[] {
         ? stops[toStopIndex]?.placeId
         : undefined);
 
-    // Route combo peek only when the agent bound a real WM option/route id —
-    // never invent clickable `#route=` guesses (airport→city etc. are not inventory).
-    const routeId = transfer?.routeId?.trim() || undefined;
+    // Peek only when the agent bound a real WM transport option IRI.
+    const transportOptionIri = transfer?.transportOptionIri?.trim() || undefined;
 
     return {
       key: `${kind}-${fromStopIndex}-${toStopIndex}`,
@@ -106,7 +105,7 @@ export function transferSlots(itinerary: ClientItinerary): TransferSlot[] {
       toLabel: resolvedTo,
       fromPlaceId: fromPlaceId && !isBookendLabel(resolvedFrom) ? fromPlaceId : undefined,
       toPlaceId: toPlaceId && !isBookendLabel(resolvedTo) ? toPlaceId : undefined,
-      routeId,
+      transportOptionIri,
       transfer,
     };
   };

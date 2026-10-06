@@ -33,7 +33,7 @@ const sample: ClientItinerary = {
       durationHours: 2,
     },
   ],
-  workflow: { stage: "route", approved: {} },
+  workflow: { stage: "stops", approved: {} },
 };
 
 describe("jev night and transport ranking", () => {

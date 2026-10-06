@@ -3,27 +3,31 @@ import { describe, it } from "node:test";
 import {
   blockedViewError,
   filterListViewsResult,
+  isAgentAllowedView,
   isAgentBlockedView,
   isNonBindableInventoryView,
 } from "./agent-views.ts";
 
 describe("agent-views", () => {
-  it("blocks unbounded inventory dumps", () => {
+  it("allowlists only agent-intended inventory views", () => {
+    assert.equal(isAgentAllowedView("inventory/places-search"), true);
+    assert.equal(isAgentAllowedView("inventory/hotels-by-city"), true);
+    assert.equal(isAgentAllowedView("inventory/transport-corridor"), true);
+    assert.equal(isAgentAllowedView("inventory/hotels-all"), false);
+    assert.equal(isAgentAllowedView("inventory/places"), false);
+    assert.equal(isAgentAllowedView("inventory/itineraries-all"), false);
     assert.equal(isAgentBlockedView("inventory/hotels-all"), true);
-    assert.equal(isAgentBlockedView("inventory/restaurants-all"), true);
-    assert.equal(isAgentBlockedView("inventory/places"), true);
-    assert.equal(isAgentBlockedView("inventory/hotels-by-city"), false);
-    assert.equal(isAgentBlockedView("inventory/restaurants-by-city"), false);
     assert.equal(isAgentBlockedView("inventory/places-search"), false);
   });
 
-  it("filters list_views JSON arrays", () => {
+  it("filters list_views to allowlist only", () => {
     const filtered = filterListViewsResult({
       views: [
         { viewKey: "inventory/hotels-all" },
         { viewKey: "inventory/hotels-by-city" },
         { key: "inventory/places" },
         { key: "inventory/places-search" },
+        { key: "inventory/itinerary" },
       ],
     }) as { views: Array<{ viewKey?: string; key?: string }> };
 
@@ -38,9 +42,8 @@ describe("agent-views", () => {
     assert.equal(isNonBindableInventoryView("inventory/hotels-by-city"), false);
   });
 
-  it("explains blocked run_view", () => {
-    assert.ok(
-      blockedViewError("inventory/activities-all").includes("activities-by-city")
-    );
+  it("explains refused run_view", () => {
+    assert.ok(blockedViewError("inventory/activities-all").includes("list_views"));
+    assert.ok(blockedViewError("inventory/itineraries-all").includes("agent catalog"));
   });
 });

@@ -8,8 +8,12 @@ import {
 import { getDocumentById } from "@/lib/db/queries";
 import { buildItineraryToolStatus } from "@/lib/itinerary/agent-status";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
-import { proposeRouteSchema } from "@/lib/itinerary/patch";
+import { proposeStopsSchema } from "@/lib/itinerary/patch";
 import { parseClientItinerary } from "@/lib/itinerary/schema";
+import {
+  itineraryToolErrorFromUnknown,
+  ItineraryToolError,
+} from "@/lib/itinerary/tool-error";
 import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
 import type { ChatMessage } from "@/lib/types";
 import { generateUUID } from "@/lib/utils";
@@ -29,19 +33,25 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass route.stops covering the full requested trip length (placeId + nights). No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, approveButtonClickable, errors, stops). If Approve is clickable, STOP and wait; if not, fix before stopping.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass top-level stops covering the full requested trip length (placeId + nights) plus optional transfers. No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, version, approveButtonClickable, errors, stops, fixes). On failure read `code` + `hint` and retry once — never invent a second itinerary. If Approve Stops is clickable, STOP and wait; if not, fix before stopping.",
     inputSchema: z.object({
       title: z.string().describe("The title of the itinerary"),
       kind: z
         .enum(creatableArtifactKinds)
         .describe("REQUIRED. Must be 'itinerary'."),
-      route: proposeRouteSchema
+      stops: proposeStopsSchema.shape.stops
         .optional()
         .describe(
-          "Route slice: stops with placeId (did:fide:0x…) + nights, optional transfers."
+          "Overnight stops: placeId (did:fide:0x…) + nights. Required in practice."
         ),
+      transfers: proposeStopsSchema.shape.transfers.describe(
+        "Optional arrival / between / departure legs with transportOptionIri from transport-corridor."
+      ),
+      summary: proposeStopsSchema.shape.summary,
+      startDate: proposeStopsSchema.shape.startDate,
+      durationDays: proposeStopsSchema.shape.durationDays,
     }),
-    execute: async ({ title, kind, route }) => {
+    execute: async ({ title, kind, stops, transfers, summary, startDate, durationDays }) => {
       const id = generateUUID();
 
       dataStream.write({
@@ -74,8 +84,17 @@ export const createDocument = ({
       );
 
       if (!documentHandler) {
-        throw new Error(`No document handler found for kind: ${kind}`);
+        return new ItineraryToolError({
+          code: "UNKNOWN_KIND",
+          message: `No document handler found for kind: ${kind}`,
+          hint: "kind must be 'itinerary'.",
+        }).toToolResult();
       }
+
+      const proposeStops =
+        stops && stops.length > 0
+          ? { title, summary, startDate, durationDays, stops, transfers }
+          : undefined;
 
       try {
         await documentHandler.onCreateDocument({
@@ -85,16 +104,11 @@ export const createDocument = ({
           session,
           modelId,
           entityBinder,
-          route,
+          stops: proposeStops,
         });
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to create itinerary";
         dataStream.write({ type: "data-finish", data: null, transient: true });
-        return {
-          error: message,
-          hint: "run_view inventory/places-search, then retry createDocument with route.stops placeId + nights. Do not open a second itinerary. Do not add hotels yet.",
-        };
+        return itineraryToolErrorFromUnknown(error);
       }
 
       dataStream.write({ type: "data-finish", data: null, transient: true });
@@ -116,7 +130,7 @@ export const createDocument = ({
         status,
         content:
           status?.nextAction ??
-          "Route itinerary is visible. Read status if present. Do not createDocument again.",
+          "Stops itinerary is visible. Read status if present. Do not createDocument again.",
       };
     },
   });

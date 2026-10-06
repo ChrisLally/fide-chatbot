@@ -32,13 +32,13 @@ const base: ClientItinerary = {
     { placeId: lei, placeName: "Lady Elliot Island", nights: 4 },
   ],
   days: [],
-  workflow: { stage: "route", approved: {} },
+  workflow: { stage: "stops", approved: {} },
 };
 
 describe("buildItineraryToolStatus", () => {
-  it("marks Approve clickable on a valid route", () => {
+  it("marks Approve clickable on a valid stops", () => {
     const status = buildItineraryToolStatus(base, policies);
-    assert.equal(status.stage, "route");
+    assert.equal(status.stage, "stops");
     assert.equal(status.approveButtonClickable, true);
     assert.equal(status.stops.length, 2);
     assert.match(status.nextAction, /IS clickable/i);
@@ -61,7 +61,7 @@ describe("buildItineraryToolStatus", () => {
   it("marks Approve Stays not clickable until hotels exist", () => {
     const stays: ClientItinerary = {
       ...base,
-      workflow: { stage: "stays", approved: { route: "x" } },
+      workflow: { stage: "stays", approved: { stops: { at: "x", by: "human" } } },
     };
     const status = buildItineraryToolStatus(stays, policies);
     assert.equal(status.stage, "stays");

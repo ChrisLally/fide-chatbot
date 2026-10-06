@@ -43,7 +43,7 @@ import { parseClientItinerary, serializeClientItinerary } from "@/lib/itinerary/
 import {
   createStreamId,
   deleteChatById,
-  ensureGuestUser,
+  ensureSessionUser,
   getChatById,
   getDocumentById,
   getMessageCountByUserId,
@@ -101,13 +101,12 @@ export async function POST(request: Request) {
       return new ChatbotError("unauthorized:chat").toResponse();
     }
 
-    // Guest JWTs can outlive PGlite rows after a wipe/migrate — recreate.
-    if (session.user.type === "guest") {
-      await ensureGuestUser({
-        id: session.user.id,
-        email: session.user.email,
-      });
-    }
+    // JWTs can outlive PGlite rows after a wipe/migrate — recreate missing user.
+    await ensureSessionUser({
+      id: session.user.id,
+      email: session.user.email,
+      type: session.user.type === "regular" ? "regular" : "guest",
+    });
 
     const chatModel = allowedModelIds.has(selectedChatModel)
       ? selectedChatModel

@@ -54,17 +54,41 @@ export function ChatShell() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const [isWorldModelVisible, setIsWorldModelVisible] = useState(false);
+  const [panelTabIntent, setPanelTabIntent] = useState<{
+    tab: "artifact" | "world-model";
+    nonce: number;
+  } | null>(null);
   const { setArtifact } = useArtifact();
   const { category: contextCategory, clearContext } = useContextNav();
   const isRightPanelVisible = isArtifactVisible || isWorldModelVisible;
 
   const openWorldModelPanel = useCallback(() => {
     setIsWorldModelVisible(true);
+    setPanelTabIntent((prev) => ({
+      tab: "world-model",
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
   }, []);
+
+  const openItineraryPanel = useCallback(() => {
+    setArtifact((current) => ({
+      ...current,
+      isVisible: true,
+      kind: current.documentId === "init" ? "itinerary" : current.kind,
+    }));
+    setPanelTabIntent((prev) => ({
+      tab: "artifact",
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  }, [setArtifact]);
 
   useEffect(() => {
     if (contextCategory) {
       setIsWorldModelVisible(true);
+      setPanelTabIntent((prev) => ({
+        tab: "world-model",
+        nonce: (prev?.nonce ?? 0) + 1,
+      }));
     }
   }, [contextCategory]);
 
@@ -96,9 +120,8 @@ export function ChatShell() {
           <ChatHeader
             chatId={chatId}
             isReadonly={isReadonly}
-            onOpenWorldModel={
-              isWorldModelVisible ? undefined : openWorldModelPanel
-            }
+            onOpenItinerary={openItineraryPanel}
+            onOpenWorldModel={openWorldModelPanel}
             selectedVisibilityType={visibilityType}
           />
 
@@ -174,6 +197,7 @@ export function ChatShell() {
           isReadonly={isReadonly}
           isWorldModelVisible={isWorldModelVisible}
           messages={messages}
+          panelTabIntent={panelTabIntent}
           regenerate={regenerate}
           selectedModelId={currentModelId}
           selectedVisibilityType={visibilityType}

@@ -54,7 +54,7 @@ const sample: ClientItinerary = {
       note: "Via Brisbane gateway — light aircraft to the island.",
     },
   ],
-  workflow: { stage: "route", approved: {} },
+  workflow: { stage: "stops", approved: {} },
 };
 
 describe("itinerary print html", () => {

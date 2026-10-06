@@ -1,0 +1,37 @@
+{
+  "ranAt": "2026-10-06T19:00:00.000Z",
+  "note": "Agent catalog = allowlist only. advisor_note visible on place/hotel. Corridor ends = place fideIds (no slug codes). EntityComments still appended on run_view.",
+  "baselineRef": "./baseline-results.json",
+  "checks": [
+    {
+      "id": "agent-allowlist",
+      "expect": "list_views / run_view only expose AGENT_VIEW_KEYS; dumps and itinerary views refused",
+      "pass": true,
+      "evidence": "lib/fide/agent-views.ts + agent-views.test.ts"
+    },
+    {
+      "id": "advisor-note-visible",
+      "expect": "inventory/place and places-search show advisor_note; exact-dupe strip only when identical to description",
+      "pass": true,
+      "evidence": "place.view.json / places-search.view.json + place-payload-dedupe"
+    },
+    {
+      "id": "corridor-fide-ids",
+      "expect": "transport-corridor from/to are place fideIds; transportOptionIri column; no NO_CORRIDOR code wrap",
+      "pass": true,
+      "evidence": "transport-corridor.sql/view.json; wrap-fide-tools no longer injects corridor codes"
+    },
+    {
+      "id": "entity-comments",
+      "expect": "run_view results still enriched with local EntityComment appendix",
+      "pass": true,
+      "evidence": "wrap-fide-tools → enrichPayloadWithEntityComments"
+    },
+    {
+      "id": "create-coded-retry",
+      "expect": "createDocument returns { code, message, hint }",
+      "pass": true,
+      "evidence": "create-errors.test.ts"
+    }
+  ]
+}

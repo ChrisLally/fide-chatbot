@@ -2,8 +2,8 @@
  * Eval: run Taylor on a trip prompt, log tool calls, validate itinerary Fide ids.
  *
  * Usage:
- *   pnpm eval:stage --route [prompt...]   # default — createDocument spine only
- *   pnpm eval:stage --stays [prompt...]   # + simulated Approve Route → hotels
+ *   pnpm eval:stage --stops [prompt...]   # default — createDocument spine only
+ *   pnpm eval:stage --stays [prompt...]   # + simulated Approve Stops → hotels
  *   pnpm eval:stage --days [prompt...]    # + Approve Stays → day blocks
  *   pnpm eval:itinerary …                 # alias of eval:stage
  *
@@ -40,8 +40,8 @@ import {
 import {
   applyItineraryPatches,
   itineraryPatchSchema,
-  materializeRoute,
-  proposeRouteSchema,
+  materializeStops,
+  proposeStopsSchema,
 } from "../lib/itinerary/patch";
 import { buildItineraryToolStatus } from "../lib/itinerary/agent-status";
 import { loadPlacePoliciesFromWorldModel } from "../lib/itinerary/wm-place-policy";
@@ -50,13 +50,13 @@ import { approveCurrentStage, ensureWorkflow } from "../lib/itinerary/stages";
 
 config({ path: resolve(process.cwd(), ".env") });
 
-type EvalStage = "route" | "stays" | "days";
+type EvalStage = "stops" | "stays" | "days";
 
 const argv = process.argv.slice(2);
-const STAGE_FLAGS = new Set(["--route", "--stays", "--days"]);
+const STAGE_FLAGS = new Set(["--stops", "--route", "--stays", "--days"]);
 const stageFlag = argv.find((a) => STAGE_FLAGS.has(a));
 const EVAL_STAGE: EvalStage =
-  stageFlag === "--days" ? "days" : stageFlag === "--stays" ? "stays" : "route";
+  stageFlag === "--days" ? "days" : stageFlag === "--stays" ? "stays" : "stops";
 const THROUGH_STAYS = EVAL_STAGE === "stays" || EVAL_STAGE === "days";
 const THROUGH_DAYS = EVAL_STAGE === "days";
 const USER_PROMPT =
@@ -257,18 +257,20 @@ async function main() {
 
   fideTools.createDocument = tool({
     description:
-      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass route.stops with placeId (did:fide:0x… from places-search) + nights only — no hotels, no activities. After create, STOP and wait for Approve Route.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass top-level stops with placeId (did:fide:0x… from places-search) + nights only — no hotels, no activities. After create, STOP and wait for Approve Stops.",
     inputSchema: z.object({
       title: z.string(),
       kind: z.literal("itinerary"),
-      route: proposeRouteSchema.optional(),
+      stops: proposeStopsSchema.optional(),
+      transfers: proposeStopsSchema.shape.transfers,
     }),
-    execute: async ({ title, kind, route }) => {
+    execute: async ({ title, kind, stops, transfers }) => {
+      const route = stops ? { stops, transfers } : undefined;
       stepCounter += 1;
       const step = stepCounter;
       if (!route?.stops?.length) {
         const message =
-          "createDocument requires route.stops [{ placeId, nights }]";
+          "createDocument requires stops [{ placeId, nights }]";
         console.log(`✗ [${step}] createDocument ${message}`);
         trace.push({
           step,
@@ -282,7 +284,7 @@ async function main() {
       const placePolicies = await loadPlacePoliciesFromWorldModel(
         route.stops.map((s) => s.placeId)
       );
-      const result = materializeRoute(title, route, entityBinder, {
+      const result = materializeStops(title, route, entityBinder, {
         placePolicies,
       });
       if (!result.ok) {
@@ -312,9 +314,9 @@ async function main() {
         id: "eval-itinerary",
         title,
         kind,
-        stage: "route",
+        stage: "stops",
         content:
-          "Route itinerary is visible. STOP. Wait for Approve Route. Do not createDocument again. Do not patchItinerary hotels or days until that approve.",
+          "Stops itinerary is visible. STOP. Wait for Approve Stops. Do not createDocument again. Do not patchItinerary hotels or days until that approve.",
       };
     },
   });
@@ -324,9 +326,10 @@ async function main() {
       "Apply a batch of typed itinerary ops (`patches: [...]`, even for one). Never call in parallel.",
     inputSchema: z.object({
       id: z.string(),
+      baseVersion: z.number().int().min(1).optional(),
       patches: z.array(itineraryPatchSchema).min(1),
     }),
-    execute: async ({ id, patches }) => {
+    execute: async ({ id, baseVersion, patches }) => {
       stepCounter += 1;
       const step = stepCounter;
       if (!captured) {
@@ -429,14 +432,14 @@ async function main() {
 
     if (THROUGH_STAYS) {
       captured = approveCurrentStage(captured);
-      console.log("\n── Simulated Approve Route → stays stage ──");
+      console.log("\n── Simulated Approve Stops → stays stage ──");
       console.log(`workflow: ${JSON.stringify(ensureWorkflow(captured))}`);
       const staysResult = await generateText({
         model,
         system,
         prompt: [
-          "The human clicked Approve Route. Workflow stage is now stays.",
-          "For overnight stops, run inventory/hotels-by-city per city slug, then ONE patchItinerary with patches: [{op:proposeStay,stopIndex,hotelId}, …] for every stop.",
+          "The human clicked Approve Stops. Workflow stage is now stays.",
+          "For overnight stops, run inventory/hotels-by-city per city slug, then ONE patchItinerary with baseVersion + patches: [{op:setStopHotel,stopId,hotelId}, …] for every stop.",
           "Lady Elliot Island is a resort island — if hotels-by-city returns no rows, skip that stop (no hotel required).",
           "Do not ask clarifying questions. Do not start the days stage. Stop when every non-island stop has a hotelId.",
           `Current itinerary JSON:\n${serializeClientItinerary(captured)}`,
@@ -458,7 +461,7 @@ async function main() {
         prompt: [
           "The human clicked Approve Stays. Workflow stage is now days.",
           "Fill day blocks for each overnight day using inventory/activities-by-city / attractions-by-city (city slug).",
-          "patchItinerary with a patches array of proposeDay ops. Keep the departure morning airport-light.",
+          "patchItinerary with a patches array of setDayBlocks ops (by dayId). Keep the departure morning airport-light.",
           "Do not ask clarifying questions. Stop when overnight days have named activities with Fide ids where inventory allows.",
           `Current itinerary JSON:\n${serializeClientItinerary(captured)}`,
         ].join("\n"),

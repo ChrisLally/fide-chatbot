@@ -162,8 +162,8 @@ function TransportCard({
   const filled = Boolean(transfer && (mode || hours != null || label || transfer.note));
   const fromId = slot.fromPlaceId;
   const toId = slot.toPlaceId;
-  // Only peek routes the agent bound from transport-corridor — never guessed IRIs.
-  const routeId = transfer?.routeId?.trim() || undefined;
+  // Only peek transport options the agent bound from transport-corridor — never guessed IRIs.
+  const transportOptionIri = transfer?.transportOptionIri?.trim() || undefined;
   const canPeekFrom =
     Boolean(fromId) &&
     from.toLowerCase() !== "arrival" &&
@@ -172,7 +172,7 @@ function TransportCard({
     Boolean(toId) &&
     to.toLowerCase() !== "arrival" &&
     to.toLowerCase() !== "departure";
-  // Don't use generic stage words ("Arrival") as the route peek button text.
+  // Don't use generic stage words ("Arrival") as the transport peek button text.
   const routeButtonLabel =
     label &&
     label.toLowerCase() !== "arrival" &&
@@ -196,7 +196,7 @@ function TransportCard({
             tone="neutral"
           />
         ) : null}
-        {routeId ? <StatusBadge label="route" tone="info" /> : null}
+        {transportOptionIri ? <StatusBadge label="transport" tone="info" /> : null}
         {!filled ? <StatusBadge label="TBD" tone="warning" /> : null}
       </div>
       <div className="mt-2 text-sm font-medium tracking-tight text-foreground">
@@ -230,13 +230,13 @@ function TransportCard({
           <span>{to}</span>
         )}
       </div>
-      {routeId ? (
+      {transportOptionIri ? (
         <button
           className="mt-1 text-left text-xs font-medium text-foreground/80 transition-colors hover:underline"
           onClick={() =>
             onPeek({
               kind: "transportation",
-              id: routeId,
+              id: transportOptionIri,
               label: routeButtonLabel,
             })
           }
@@ -352,11 +352,11 @@ function StageRail({
   verifyWarnings?: string[];
   canApprove?: boolean;
   onApprove: () => void;
-  onReopen: (stage: "route" | "stays" | "days") => void;
+  onReopen: (stage: "stops" | "stays" | "days") => void;
 }) {
-  const steps: Array<"route" | "stays" | "days"> = ["route", "stays", "days"];
+  const steps: Array<"stops" | "stays" | "days"> = ["stops", "stays", "days"];
   const activeIndex =
-    stage === "complete" ? 3 : steps.indexOf(stage as "route" | "stays" | "days");
+    stage === "complete" ? 3 : steps.indexOf(stage as "stops" | "stays" | "days");
 
   return (
     <div className="space-y-2">
@@ -534,7 +534,7 @@ export function ItineraryEditor({
     placePolicies,
   });
 
-  const routeLocked = Boolean(workflow.approved.route) && stage !== "route";
+  const routeLocked = Boolean(workflow.approved.stops) && stage !== "stops";
   const daysEditable = editable && (stage === "days" || stage === "complete");
   const routeEditable = editable && !routeLocked;
 
@@ -547,7 +547,8 @@ export function ItineraryEditor({
       toast.error(approveGate.errors[0] ?? "Fix verification errors first");
       return;
     }
-    const next = approveCurrentStage(itinerary);
+    const approved = approveCurrentStage(itinerary, { by: "human" });
+    const next = { ...approved, version: approved.version ?? (itinerary.version ?? 1) + 1 };
     onSaveContent(serializeClientItinerary(next), false);
     toast.success(`${STAGE_LABELS[stage]} approved`);
     const followUp = stageAdvancePrompt(ensureWorkflow(next).stage);
@@ -559,7 +560,7 @@ export function ItineraryEditor({
     }
   };
 
-  const handleReopen = (target: "route" | "stays" | "days") => {
+  const handleReopen = (target: "stops" | "stays" | "days") => {
     const next = reopenStage(itinerary, target);
     onSaveContent(serializeClientItinerary(next), false);
     toast.message(`Reopened ${STAGE_LABELS[target]}`);

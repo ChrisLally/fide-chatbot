@@ -1,9 +1,31 @@
 /**
- * Agent-facing inventory views: block unbounded dumps; Context UI may still
- * call the same *-all queries via context/query.
+ * Agent-facing inventory views — allowlist only.
+ * Context UI may still call other views via context/query; chat list_views / run_view
+ * only expose keys in AGENT_VIEW_KEYS.
  */
 
-/** Unfiltered list views — hidden from list_views and refused by run_view. */
+/** Views the itinerary agent may list and run. */
+export const AGENT_VIEW_KEYS = new Set([
+  "inventory/places-search",
+  "inventory/place",
+  "inventory/hotels-by-city",
+  "inventory/hotel",
+  "inventory/restaurants-by-city",
+  "inventory/restaurant",
+  "inventory/activities-by-city",
+  "inventory/activity",
+  "inventory/attractions-by-city",
+  "inventory/attraction",
+  "inventory/transport-corridor",
+  "inventory/transport-option",
+  "inventory/events-featured",
+  "inventory/event",
+  "inventory/collections-all",
+  "inventory/collection",
+  "inventory/cluster-members",
+]);
+
+/** @deprecated Prefer isAgentAllowedView — kept for call sites that phrase "blocked". */
 export const AGENT_BLOCKED_VIEW_KEYS = new Set([
   "inventory/hotels-all",
   "inventory/restaurants-all",
@@ -11,32 +33,25 @@ export const AGENT_BLOCKED_VIEW_KEYS = new Set([
   "inventory/attractions-all",
   "inventory/transport-all",
   "inventory/itineraries-all",
+  "inventory/itineraries-search",
   "inventory/advisor-links-all",
   "inventory/same-as-links",
   "inventory/places",
 ]);
 
-/** Prefer these filtered list views instead. */
-export const AGENT_FILTERED_LIST_HINTS: Record<string, string> = {
-  "inventory/hotels-all": "inventory/hotels-by-city (required: city)",
-  "inventory/restaurants-all": "inventory/restaurants-by-city (required: city)",
-  "inventory/activities-all": "inventory/activities-by-city (required: city)",
-  "inventory/attractions-all": "inventory/attractions-by-city (required: city)",
-  "inventory/transport-all":
-    "inventory/transport-corridor (required: from and/or to)",
-  "inventory/places": "inventory/places-search (required: q)",
-  "inventory/itineraries-all":
-    "Do not copy brochure templates into itineraries; look up places/hotels/activities by city instead",
-  "inventory/advisor-links-all": "inventory/place (required: fideId)",
-  "inventory/same-as-links": "inventory/cluster-members (required: fideId)",
-};
-
 export function normalizeViewKey(viewKey: string): string {
   return viewKey.trim().replace(/^\/+/, "");
 }
 
+export function isAgentAllowedView(viewKey: string): boolean {
+  return AGENT_VIEW_KEYS.has(normalizeViewKey(viewKey));
+}
+
+/** True when the agent must not run this view (not on the allowlist). */
 export function isAgentBlockedView(viewKey: string): boolean {
-  return AGENT_BLOCKED_VIEW_KEYS.has(normalizeViewKey(viewKey));
+  const key = normalizeViewKey(viewKey);
+  if (!key) return false;
+  return !isAgentAllowedView(key);
 }
 
 /** Views whose rows must not seed the itinerary entity allowlist. */
@@ -47,8 +62,7 @@ export function isNonBindableInventoryView(viewKey: string): boolean {
 
 export function blockedViewError(viewKey: string): string {
   const key = normalizeViewKey(viewKey);
-  const hint = AGENT_FILTERED_LIST_HINTS[key] ?? "a filtered inventory view";
-  return `View "${key}" is not available to the agent (unbounded dump). Use ${hint}. Call list_views for the allowed catalog.`;
+  return `View "${key}" is not available to the agent. Call list_views for the agent catalog (places-search, place, hotels-by-city, transport-corridor, …). Context UI views and inventory dumps are not on this surface.`;
 }
 
 function viewKeyFromEntry(entry: unknown): string | null {
@@ -66,12 +80,11 @@ function viewKeyFromEntry(entry: unknown): string | null {
 }
 
 /**
- * Drop blocked views from a list_views tool result (JSON text or structured).
+ * Keep only allowlisted views from a list_views tool result.
  */
 export function filterListViewsResult(result: unknown): unknown {
   if (typeof result === "string") {
-    const filtered = filterListViewsText(result);
-    return filtered;
+    return filterListViewsText(result);
   }
   if (!result || typeof result !== "object") {
     return result;
@@ -105,7 +118,7 @@ export function filterListViewsResult(result: unknown): unknown {
         ...record,
         [field]: value.filter((entry) => {
           const key = viewKeyFromEntry(entry);
-          return !key || !isAgentBlockedView(key);
+          return !!key && isAgentAllowedView(key);
         }),
       };
     }
@@ -122,32 +135,26 @@ function filterListViewsText(text: string): string {
 
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    const filtered = filterListViewsResult(parsed);
-    if (filtered !== parsed) {
-      return JSON.stringify(filtered, null, 2);
-    }
     if (Array.isArray(parsed)) {
       const next = parsed.filter((entry) => {
         const key = viewKeyFromEntry(entry);
-        return !key || !isAgentBlockedView(key);
+        return !!key && isAgentAllowedView(key);
       });
       return JSON.stringify(next, null, 2);
     }
     if (parsed && typeof parsed === "object") {
-      const record = parsed as Record<string, unknown>;
-      for (const field of ["views", "items", "data", "rows"] as const) {
-        if (Array.isArray(record[field])) {
-          return JSON.stringify(filterListViewsResult(parsed), null, 2);
-        }
-      }
+      return JSON.stringify(filterListViewsResult(parsed), null, 2);
     }
   } catch {
     // Fall through to line filter for markdown / YAML-ish dumps.
   }
 
-  const blocked = [...AGENT_BLOCKED_VIEW_KEYS];
   return text
     .split("\n")
-    .filter((line) => !blocked.some((key) => line.includes(key)))
+    .filter((line) => {
+      const match = line.match(/inventory\/[a-z0-9-]+/i);
+      if (!match) return true;
+      return isAgentAllowedView(match[0]!);
+    })
     .join("\n");
 }

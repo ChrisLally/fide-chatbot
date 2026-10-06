@@ -43,29 +43,29 @@ describe("transferSlots", () => {
     assert.equal(slots[0]?.transfer, undefined);
   });
 
-  it("attaches place endpoints; route peek only when transfer.routeId is bound", () => {
+  it("attaches place endpoints; route peek only when transfer.transportOptionIri is bound", () => {
     const slots = transferSlots(sample);
     const between = slots[1];
     assert.equal(between?.fromPlaceId, sample.stops[0].placeId);
     assert.equal(between?.toPlaceId, sample.stops[1].placeId);
-    assert.equal(between?.routeId, undefined);
+    assert.equal(between?.transportOptionIri, undefined);
 
     const withRoute = transferSlots({
       ...sample,
       transfers: [
         {
           ...sample.transfers[0],
-          routeId: "https://www.catalinaquest.ai/#route=sydney--brisbane",
+          transportOptionIri: "https://www.catalinaquest.ai/#route=sydney--brisbane",
         },
       ],
     });
     assert.equal(
-      withRoute[1]?.routeId,
+      withRoute[1]?.transportOptionIri,
       "https://www.catalinaquest.ai/#route=sydney--brisbane"
     );
     assert.equal(slots[0]?.toPlaceId, sample.stops[0].placeId);
     assert.equal(slots[0]?.fromPlaceId, undefined);
-    assert.equal(slots[0]?.routeId, undefined);
+    assert.equal(slots[0]?.transportOptionIri, undefined);
     assert.equal(slots[2]?.fromPlaceId, sample.stops[1].placeId);
   });
 
@@ -86,7 +86,7 @@ describe("transferSlots", () => {
     const arrival = slots[0];
     assert.equal(arrival?.fromLabel, "Sydney Airport");
     assert.equal(arrival?.fromPlaceId, undefined);
-    assert.equal(arrival?.routeId, undefined);
+    assert.equal(arrival?.transportOptionIri, undefined);
     assert.equal(arrival?.toPlaceId, sample.stops[0].placeId);
   });
 });
