@@ -18,6 +18,7 @@ import {
   useArtifactSelector,
 } from "@/hooks/use-artifact";
 import { useContextNav } from "@/hooks/use-context-nav";
+import { lastItineraryArtifactRef } from "@/lib/itinerary/artifact-ref";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Artifact } from "./artifact";
@@ -71,16 +72,61 @@ export function ChatShell() {
   }, []);
 
   const openItineraryPanel = useCallback(() => {
-    setArtifact((current) => ({
-      ...current,
-      isVisible: true,
-      kind: current.documentId === "init" ? "itinerary" : current.kind,
-    }));
+    const fromMessages = lastItineraryArtifactRef(messages);
+    setArtifact((current) => {
+      const shouldBind =
+        Boolean(fromMessages) &&
+        (current.documentId === "init" ||
+          current.documentId !== fromMessages?.id);
+      return {
+        ...current,
+        isVisible: true,
+        kind: shouldBind
+          ? "itinerary"
+          : current.documentId === "init"
+            ? "itinerary"
+            : current.kind,
+        ...(shouldBind && fromMessages
+          ? {
+              documentId: fromMessages.id,
+              title: fromMessages.title ?? current.title,
+              content: "",
+              status: "idle" as const,
+            }
+          : {}),
+      };
+    });
     setPanelTabIntent((prev) => ({
       tab: "artifact",
       nonce: (prev?.nonce ?? 0) + 1,
     }));
-  }, [setArtifact]);
+  }, [messages, setArtifact]);
+
+  // If the panel is already open on the empty state and messages load (or
+  // finish loading after a refresh), bind the latest itinerary from history.
+  useEffect(() => {
+    const fromMessages = lastItineraryArtifactRef(messages);
+    if (!fromMessages) {
+      return;
+    }
+    setArtifact((current) => {
+      if (
+        !current.isVisible ||
+        current.documentId !== "init" ||
+        current.status === "streaming"
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        documentId: fromMessages.id,
+        title: fromMessages.title ?? current.title,
+        kind: "itinerary",
+        content: "",
+        status: "idle",
+      };
+    });
+  }, [chatId, messages, setArtifact]);
 
   useEffect(() => {
     if (contextCategory) {

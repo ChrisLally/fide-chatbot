@@ -11,21 +11,18 @@ import {
 import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
 import { parseClientItinerary, serializeClientItinerary } from "@/lib/itinerary/schema";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
-import { itineraryWithRankings, publishJevScores } from "@/lib/itinerary/jev";
 import type { ChatMessage } from "@/lib/types";
 
 type PatchItineraryProps = {
   session: Session;
   dataStream: UIMessageStreamWriter<ChatMessage>;
   entityBinder?: TurnEntityBinder;
-  lastUserText?: string;
 };
 
 export const patchItinerary = ({
   session,
   dataStream,
   entityBinder,
-  lastUserText = "",
 }: PatchItineraryProps) =>
   tool({
     description:
@@ -98,15 +95,7 @@ export const patchItinerary = ({
           };
         }
 
-        const scores = await publishJevScores(
-          dataStream,
-          result.itinerary,
-          lastUserText
-        );
-        const next = scores
-          ? itineraryWithRankings(result.itinerary, scores)
-          : result.itinerary;
-        const content = serializeClientItinerary(next);
+        const content = serializeClientItinerary(result.itinerary);
         await saveDocument({
           id: document.id,
           title: result.itinerary.title || document.title,
@@ -127,7 +116,7 @@ export const patchItinerary = ({
         });
         dataStream.write({ type: "data-finish", data: null, transient: true });
 
-        const status = buildItineraryToolStatus(next, placePolicies);
+        const status = buildItineraryToolStatus(result.itinerary, placePolicies);
 
         return {
           id,

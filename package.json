@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "PGLITE_DATA_DIR=.pglite-dev next dev --turbo",
     "build": "tsx lib/db/migrate && next build",
-    "deploy": "sudo systemctl stop fide-chatbot.service; IS_DEMO=1 pnpm build && sudo systemctl start fide-chatbot.service",
+    "deploy": "bash scripts/deploy.sh",
     "start": "next start",
     "check": "ultracite check",
     "fix": "ultracite fix",

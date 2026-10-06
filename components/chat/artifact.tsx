@@ -522,9 +522,7 @@ function PureArtifact({
   }, [panelTabIntent]);
 
   const isPanelVisible = artifact.isVisible || isWorldModelVisible;
-  const hasItineraryContent =
-    artifact.documentId !== "init" &&
-    (Boolean(artifact.content?.trim()) || artifact.status === "streaming");
+  const hasItineraryBound = artifact.documentId !== "init";
   const currentTab =
     activeTab === "artifact" && artifact.isVisible
       ? "artifact"
@@ -1020,7 +1018,7 @@ function PureArtifact({
     </>
   );
 
-  const artifactPanel = hasItineraryContent ? (
+  const artifactPanel = hasItineraryBound ? (
     <>
       <div className="flex h-[calc(3.5rem+1px)] shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4">
         <div className="flex min-w-0 items-center gap-3">

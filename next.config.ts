@@ -17,10 +17,14 @@ if (!process.env.IS_DEMO && fs.existsSync(path.join(appRoot, ".env"))) {
 }
 
 const basePath = process.env.IS_DEMO === "1" ? "/demo" : "";
+// Optional alternate output so production can keep serving `.next` while a
+// deploy builds into e.g. `.next-next` (see scripts/deploy.sh).
+const distDir = process.env.NEXT_DIST_DIR?.trim() || undefined;
 
 const nextConfig: NextConfig = {
   // Keep file tracing inside this app (do not pull parent monorepo packages).
   outputFileTracingRoot: appRoot,
+  ...(distDir ? { distDir } : {}),
   turbopack: {
     root: appRoot,
   },

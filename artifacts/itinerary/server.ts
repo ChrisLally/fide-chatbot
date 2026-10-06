@@ -1,7 +1,6 @@
 import { createDocumentHandler } from "@/lib/artifacts/server";
 import { materializeStops } from "@/lib/itinerary/patch";
 import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
-import { itineraryWithRankings, publishJevScores } from "@/lib/itinerary/jev";
 import { serializeClientItinerary, stripJsonFences } from "@/lib/itinerary/schema";
 import { ItineraryToolError } from "@/lib/itinerary/tool-error";
 import type { UIMessageStreamWriter } from "ai";
@@ -51,19 +50,7 @@ export const itineraryDocumentHandler = createDocumentHandler<"itinerary">({
     }
     const serialized = serializeClientItinerary(result.itinerary);
     publishDraft(dataStream, serialized);
-    const scores = await publishJevScores(
-      dataStream,
-      result.itinerary,
-      result.itinerary.summary
-    );
-    if (!scores) {
-      return serialized;
-    }
-    const ranked = serializeClientItinerary(
-      itineraryWithRankings(result.itinerary, scores)
-    );
-    publishDraft(dataStream, ranked);
-    return ranked;
+    return serialized;
   },
   onUpdateDocument: async () => {
     throw new ItineraryToolError({

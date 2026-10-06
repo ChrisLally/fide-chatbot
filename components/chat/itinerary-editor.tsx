@@ -438,8 +438,6 @@ export function ItineraryEditor({
   isCurrentVersion: boolean;
   onSaveContent: (updatedContent: string, debounce: boolean) => void;
   sendMessage?: UseChatHelpers<ChatMessage>["sendMessage"];
-  /** @deprecated JEV UI paused; kept optional so callers need not change yet. */
-  jev?: unknown;
   /** Chat preview teaser — hide Approve / edit controls; side panel stays interactive. */
   readOnly?: boolean;
 }) {

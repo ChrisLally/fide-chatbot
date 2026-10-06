@@ -5,6 +5,8 @@ data-inbox/
 .pnp.js
 coverage
 .next/
+.next-next/
+.next-prev/
 out/
 build
 .DS_Store

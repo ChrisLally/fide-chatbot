@@ -34,22 +34,13 @@ import { isFideMcpConfigured } from "@/lib/fide/mcp-config";
 import { wrapFideToolsWithBinder } from "@/lib/fide/wrap-fide-tools";
 import { createTurnEntityBinder } from "@/lib/itinerary/entity-binder";
 import {
-  itineraryWithRankings,
-  lastItineraryArtifactId,
-  lastUserTextFromMessages,
-  publishJevScores,
-} from "@/lib/itinerary/jev";
-import { parseClientItinerary, serializeClientItinerary } from "@/lib/itinerary/schema";
-import {
   createStreamId,
   deleteChatById,
   ensureSessionUser,
   getChatById,
-  getDocumentById,
   getMessageCountByUserId,
   getMessagesByChatId,
   saveChat,
-  saveDocument,
   saveMessages,
   updateChatTitleById,
   updateMessage,
@@ -214,7 +205,6 @@ export async function POST(request: Request) {
     const supportsTools = capabilities?.tools === true;
 
     const modelMessages = await convertToModelMessages(uiMessages);
-    const lastUserText = lastUserTextFromMessages(uiMessages);
 
     const fideMcpEnabled = isFideMcpConfigured() && !isTestEnvironment;
     const toolsEnabled = supportsTools && !(isReasoningModel && !supportsTools);
@@ -225,51 +215,6 @@ export async function POST(request: Request) {
         let mcpClient: MCPClient | undefined;
         let fideTools: ToolSet = {};
         const entityBinder = createTurnEntityBinder();
-
-        if (!isTestEnvironment) {
-          const artifactId = lastItineraryArtifactId(uiMessages);
-          if (artifactId) {
-            void (async () => {
-              try {
-                const document = await getDocumentById({ id: artifactId });
-                if (document?.kind !== "itinerary" || !document.content) {
-                  return;
-                }
-                const parsed = parseClientItinerary(document.content, {
-                  allowUnbound: true,
-                });
-                if (!parsed.ok) {
-                  return;
-                }
-                const scores = await publishJevScores(
-                  dataStream,
-                  parsed.data,
-                  lastUserText
-                );
-                if (!scores) {
-                  return;
-                }
-                const ranked = serializeClientItinerary(
-                  itineraryWithRankings(parsed.data, scores)
-                );
-                await saveDocument({
-                  id: document.id,
-                  title: document.title,
-                  kind: "itinerary",
-                  content: ranked,
-                  userId: document.userId,
-                });
-                dataStream.write({
-                  type: "data-itineraryDelta",
-                  data: ranked,
-                  transient: true,
-                });
-              } catch {
-                /* rankings are advisory */
-              }
-            })();
-          }
-        }
 
         if (fideMcpEnabled && toolsEnabled) {
           try {
@@ -295,7 +240,6 @@ export async function POST(request: Request) {
             session,
             dataStream,
             entityBinder,
-            lastUserText,
           }),
           requestSuggestions: requestSuggestions({
             session,

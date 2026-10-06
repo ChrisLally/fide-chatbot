@@ -3,10 +3,10 @@ import { describe, it } from "node:test";
 import {
   assembleJevScores,
   evaluationState,
-  lastItineraryArtifactId,
   lastUserTextFromMessages,
   rankingTargets,
 } from "./jev.ts";
+import { lastItineraryArtifactId } from "./artifact-ref.ts";
 import { nightFitLabel } from "./jev-types.ts";
 import type { ClientItinerary } from "./schema.ts";
 import { graphStayBand } from "./schema.ts";

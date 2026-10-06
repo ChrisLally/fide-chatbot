@@ -1,6 +1,4 @@
 import { experimental_evaluate as evaluate } from "ai";
-import type { UIMessageStreamWriter } from "ai";
-import type { ChatMessage } from "@/lib/types";
 import type { ClientItinerary } from "./schema";
 import { graphStayBand, matchesCatalinaPlaceSlug } from "./schema";
 import { ensureWorkflow } from "./stages";
@@ -59,41 +57,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return value as Record<string, unknown>;
   }
   return null;
-}
-
-/** Latest createDocument / patchItinerary artifact id from tool parts. */
-export function lastItineraryArtifactId(
-  messages: Array<{ parts?: unknown[] }>
-): string | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    for (const part of messages[i]?.parts ?? []) {
-      const record = asRecord(part);
-      if (!record) {
-        continue;
-      }
-      const type = String(record.type ?? "");
-      const toolName = String(record.toolName ?? record.tool ?? "");
-      const output = asRecord(record.output) ?? asRecord(record.result);
-      if (!output) {
-        continue;
-      }
-      const id = output.id;
-      if (typeof id !== "string" || id.length < 8) {
-        continue;
-      }
-      const kind = output.kind;
-      if (
-        kind === "itinerary" ||
-        type.includes("createDocument") ||
-        type.includes("patchItinerary") ||
-        toolName === "createDocument" ||
-        toolName === "patchItinerary"
-      ) {
-        return id;
-      }
-    }
-  }
-  return undefined;
 }
 
 function isCarTransportMode(mode: string | undefined): boolean {
@@ -452,21 +415,4 @@ export function itineraryWithRankings(
   scores: JevScores
 ): ClientItinerary {
   return { ...itinerary, rankings: scores };
-}
-
-export async function publishJevScores(
-  dataStream: UIMessageStreamWriter<ChatMessage>,
-  itinerary: ClientItinerary | null,
-  lastUserText: string
-): Promise<JevScores | null> {
-  if (!isJevRankingEnabled() || !itinerary) {
-    return null;
-  }
-  const scores = await evaluateJevRankings({ itinerary, lastUserText });
-  dataStream.write({
-    type: "data-jevScores",
-    data: scores,
-    transient: true,
-  });
-  return scores;
 }
