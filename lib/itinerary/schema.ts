@@ -406,7 +406,7 @@ export const clientItinerarySchema = z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD")
       .optional(),
-    /** Monotonic doc revision for optimistic concurrency (`baseVersion`). */
+    /** Monotonic write counter for internal history; patches always edit latest. */
     version: z.number().int().min(1).default(1),
     /** Artifact shape version; 2 = stopId/dayId/transportOptionIri/stops stage. */
     schemaVersion: z.number().int().min(1).default(2),

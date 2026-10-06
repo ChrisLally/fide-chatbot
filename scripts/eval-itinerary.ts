@@ -326,10 +326,9 @@ async function main() {
       "Apply a batch of typed itinerary ops (`patches: [...]`, even for one). Never call in parallel.",
     inputSchema: z.object({
       id: z.string(),
-      baseVersion: z.number().int().min(1).optional(),
       patches: z.array(itineraryPatchSchema).min(1),
     }),
-    execute: async ({ id, baseVersion, patches }) => {
+    execute: async ({ id, patches }) => {
       stepCounter += 1;
       const step = stepCounter;
       if (!captured) {
@@ -439,7 +438,7 @@ async function main() {
         system,
         prompt: [
           "The human clicked Approve Stops. Workflow stage is now stays.",
-          "For overnight stops, run inventory/hotels-by-city per city slug, then ONE patchItinerary with baseVersion + patches: [{op:setStopHotel,stopId,hotelId}, …] for every stop.",
+          "For overnight stops, run inventory/hotels-by-city per city slug, then ONE patchItinerary with patches: [{op:setStopHotel,stopId,hotelId}, …] for every stop.",
           "Lady Elliot Island is a resort island — if hotels-by-city returns no rows, skip that stop (no hotel required).",
           "Do not ask clarifying questions. Do not start the days stage. Stop when every non-island stop has a hotelId.",
           `Current itinerary JSON:\n${serializeClientItinerary(captured)}`,

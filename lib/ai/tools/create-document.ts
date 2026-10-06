@@ -33,7 +33,7 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass top-level stops covering the full requested trip length (placeId + nights) plus optional transfers. No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, version, approveButtonClickable, errors, stops, fixes). On failure read `code` + `hint` and retry once — never invent a second itinerary. If Approve Stops is clickable, STOP and wait; if not, fix before stopping.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass top-level stops covering the full requested trip length (placeId + nights) plus optional transfers. No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, approveButtonClickable, errors, stops, fixes). On failure read `code` + `hint` and retry once — never invent a second itinerary. If Approve Stops is clickable, STOP and wait; if not, fix before stopping.",
     inputSchema: z.object({
       title: z.string().describe("The title of the itinerary"),
       kind: z

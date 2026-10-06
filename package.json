@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "PGLITE_DATA_DIR=.pglite-dev next dev --turbo",
     "build": "tsx lib/db/migrate && next build",
-    "deploy": "bash scripts/deploy.sh",
+    "release": "bash scripts/release.sh",
     "start": "next start",
     "check": "ultracite check",
     "fix": "ultracite fix",

@@ -57,7 +57,7 @@ export const itineraryDocumentHandler = createDocumentHandler<"itinerary">({
       code: "UPDATE_DISABLED",
       message:
         "updateDocument is disabled for itineraries. Use patchItinerary with patches: [{ op, … }].",
-      hint: "Call patchItinerary with baseVersion from status.version.",
+      hint: "Call patchItinerary with patches: [{ op, … }] on the current document.",
     });
   },
 });

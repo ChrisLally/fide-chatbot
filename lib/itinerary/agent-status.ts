@@ -15,8 +15,6 @@ export type ItineraryStatusFix = {
 export type ItineraryToolStatus = {
   stage: ItineraryStage;
   stageLabel: string;
-  /** Artifact write version — send as baseVersion on the next patchItinerary. */
-  version: number;
   /** Same gate as the UI Approve button (`forApprove: true`). */
   approveButtonClickable: boolean;
   errors: string[];
@@ -143,7 +141,6 @@ export function buildItineraryToolStatus(
   return {
     stage,
     stageLabel: STAGE_LABELS[stage],
-    version: itinerary.version ?? 1,
     approveButtonClickable: gate.ok,
     errors,
     warnings: display.warnings,

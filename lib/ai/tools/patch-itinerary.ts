@@ -26,14 +26,9 @@ export const patchItinerary = ({
 }: PatchItineraryProps) =>
   tool({
     description:
-      "Apply a batch of typed itinerary ops in one call (`patches: [...]`, even for a single op). Ops run atomically on one document snapshot. Require baseVersion from status.version. Hotels only after Approve Stops; day blocks only after stays. Address stops/days by stopId/dayId. Pass did:fide:0x… ids. Always read returned `status` before your next message.",
+      "Apply a batch of typed itinerary ops in one call (`patches: [...]`, even for a single op). Always edits the current document (latest). Hotels only after Approve Stops; day blocks only after stays. Address stops/days by stopId/dayId. Pass did:fide:0x… ids. Always read returned `status` before your next message — re-evaluate intent if stage/hotels/days already match what you planned.",
     inputSchema: z.object({
       id: z.string().describe("The itinerary artifact id"),
-      baseVersion: z
-        .number()
-        .int()
-        .min(1)
-        .describe("Current status.version — reject with VERSION_CONFLICT if stale"),
       patches: z
         .array(itineraryPatchSchema)
         .min(1)
@@ -41,7 +36,7 @@ export const patchItinerary = ({
           "Ordered ops to apply in one atomic transaction. Example stays: [{op:setStopHotel,stopId:\"s1\",hotelId},…]"
         ),
     }),
-    execute: async ({ id, baseVersion, patches }) => {
+    execute: async ({ id, patches }) => {
       return withArtifactLock(id, async () => {
         const document = await getDocumentById({ id });
         if (!document) {
@@ -70,15 +65,6 @@ export const patchItinerary = ({
           ),
         ];
         const placePolicies = await loadPlacePoliciesFromWorldModel(placeIds);
-        const currentVersion = parsed.data.version ?? 1;
-
-        if (baseVersion !== currentVersion) {
-          return {
-            error: `VERSION_CONFLICT: document is at version ${currentVersion}, you sent baseVersion ${baseVersion}. Re-read status and re-evaluate intent — do not blind-resubmit.`,
-            code: "VERSION_CONFLICT",
-            status: buildItineraryToolStatus(parsed.data, placePolicies),
-          };
-        }
 
         const result = applyItineraryPatches(
           parsed.data,
@@ -90,7 +76,7 @@ export const patchItinerary = ({
           return {
             error: result.error,
             diagnostics: result.diagnostics,
-            hint: "Copy did:fide:0x… from run_view and retry. Use one patches array — do not call patchItinerary in parallel. Address by stopId/dayId.",
+            hint: "Copy did:fide:0x… from run_view and retry. Use one patches array — do not call patchItinerary in parallel. Address by stopId/dayId. Read status before deciding whether another patch is still needed.",
             status: buildItineraryToolStatus(parsed.data, placePolicies),
           };
         }
@@ -124,7 +110,7 @@ export const patchItinerary = ({
           kind: "itinerary" as const,
           ops: patches.map((patch) => patch.op),
           status,
-          content: `Itinerary patched (${patches.length} op(s): ${patches.map((p) => p.op).join(", ")}). Read status.nextAction / status.version. Do not resend the full JSON.`,
+          content: `Itinerary patched (${patches.length} op(s): ${patches.map((p) => p.op).join(", ")}). Read status.nextAction. Do not resend the full JSON.`,
         };
       });
     },

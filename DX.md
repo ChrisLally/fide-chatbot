@@ -38,10 +38,10 @@ Long-running host is systemd + nginx:
 Redeploy after code changes:
 
 ```bash
-pnpm run deploy
+pnpm release
 ```
 
-That is `IS_DEMO=1 pnpm build` plus a restart of `fide-chatbot.service`.
+That builds into a staging `.next` while the service stays up, then does a short stop → migrate → swap → start cutover (`scripts/release.sh`).
 
 ## Data upload inbox
 

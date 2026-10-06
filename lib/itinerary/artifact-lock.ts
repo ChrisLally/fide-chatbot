@@ -1,7 +1,7 @@
 /**
  * Simple in-memory mutex per itinerary artifact id.
- * Serializes parallel patch / approve / UI writes so baseVersion races
- * become ordered applies instead of silent lost updates.
+ * Serializes parallel patch / approve / UI writes so concurrent mutations
+ * do not interleave on the same artifact.
  */
 
 type Waiter = {

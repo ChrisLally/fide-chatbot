@@ -18,7 +18,7 @@ if (!process.env.IS_DEMO && fs.existsSync(path.join(appRoot, ".env"))) {
 
 const basePath = process.env.IS_DEMO === "1" ? "/demo" : "";
 // Optional alternate output so production can keep serving `.next` while a
-// deploy builds into e.g. `.next-next` (see scripts/deploy.sh).
+// deploy builds into e.g. `.next-next` (see scripts/release.sh).
 const distDir = process.env.NEXT_DIST_DIR?.trim() || undefined;
 
 const nextConfig: NextConfig = {
