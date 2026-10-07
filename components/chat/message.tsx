@@ -388,12 +388,27 @@ const PurePreviewMessage = ({
       const { toolCallId } = part;
 
       if (part.output && "error" in part.output) {
+        const code =
+          "code" in part.output && typeof part.output.code === "string"
+            ? part.output.code
+            : undefined;
+        const message = String(part.output.error);
+        const isStageGate =
+          code === "STAGE_BLOCKED" ||
+          /not approved yet|Wait for the human to click Approve/i.test(message);
+
         return (
           <div
-            className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
+            className={
+              isStageGate
+                ? "rounded-lg border border-border/60 bg-muted/40 p-4 text-sm text-muted-foreground"
+                : "rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
+            }
             key={toolCallId}
           >
-            Error patching itinerary: {String(part.output.error)}
+            {isStageGate
+              ? "Waiting for Approve Stops before hotels or day activities can be added."
+              : `Error patching itinerary: ${message}`}
           </div>
         );
       }

@@ -1,29 +1,16 @@
-const litellmConfigured = Boolean(
-  process.env.LITELLM_BASE_URL?.trim() && process.env.LITELLM_API_KEY?.trim()
-);
-
-/** Always available for LiteLLM → Bedrock fallback. */
+/** Amazon Bedrock chat model (Taylor). Override with BEDROCK_CHAT_MODEL. */
 export const BEDROCK_CHAT_MODEL =
+  process.env.BEDROCK_CHAT_MODEL?.trim() ||
   "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 
-/** LiteLLM model id when gateway is configured; otherwise Bedrock Haiku. */
-export const DEFAULT_CHAT_MODEL = litellmConfigured
-  ? process.env.LITELLM_MODEL?.trim() || "claude-sonnet-5"
-  : BEDROCK_CHAT_MODEL;
+export const DEFAULT_CHAT_MODEL = BEDROCK_CHAT_MODEL;
 
-export const titleModel = litellmConfigured
-  ? {
-      id: DEFAULT_CHAT_MODEL,
-      name: "Taylor 2.0",
-      provider: "litellm",
-      description: "Chat model via Azure LiteLLM gateway",
-    }
-  : {
-      id: BEDROCK_CHAT_MODEL,
-      name: "Taylor 2.0",
-      provider: "amazon-bedrock",
-      description: "Fast model for title generation",
-    };
+export const titleModel = {
+  id: BEDROCK_CHAT_MODEL,
+  name: "Taylor 2.0",
+  provider: "amazon-bedrock",
+  description: "Amazon Bedrock chat model",
+};
 
 export type ModelCapabilities = {
   tools: boolean;
@@ -39,25 +26,15 @@ export type ChatModel = {
   capabilities: ModelCapabilities;
 };
 
-export const chatModels: ChatModel[] = litellmConfigured
-  ? [
-      {
-        id: DEFAULT_CHAT_MODEL,
-        name: "Taylor 2.0",
-        provider: "litellm",
-        description: "Azure LiteLLM gateway (OpenAI-compatible)",
-        capabilities: { tools: true, vision: true, reasoning: false },
-      },
-    ]
-  : [
-      {
-        id: BEDROCK_CHAT_MODEL,
-        name: "Taylor 2.0",
-        provider: "amazon-bedrock",
-        description: "Fast, capable model with tool use",
-        capabilities: { tools: true, vision: true, reasoning: false },
-      },
-    ];
+export const chatModels: ChatModel[] = [
+  {
+    id: BEDROCK_CHAT_MODEL,
+    name: "Taylor 2.0",
+    provider: "amazon-bedrock",
+    description: "Amazon Bedrock — tools + vision",
+    capabilities: { tools: true, vision: true, reasoning: false },
+  },
+];
 
 export async function getCapabilities(): Promise<
   Record<string, ModelCapabilities>

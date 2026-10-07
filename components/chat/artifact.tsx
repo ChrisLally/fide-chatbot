@@ -607,7 +607,7 @@ function PureArtifact({
     },
     {
       label: "Itineraries",
-      description: "Advisor trip templates with ordered stays.",
+      description: "Example advisor itineraries with ordered stays (browse only).",
     },
     {
       label: "Collections",

@@ -33,7 +33,7 @@ export const createDocument = ({
 }: CreateDocumentProps) =>
   tool({
     description:
-      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass top-level stops covering the full requested trip length (placeId + nights) plus optional transfers. No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, approveButtonClickable, errors, stops, fixes). On failure read `code` + `hint` and retry once — never invent a second itinerary. If Approve Stops is clickable, STOP and wait; if not, fix before stopping.",
+      "Create ONE itinerary artifact for this chat (kind: itinerary). Pass top-level stops covering the full requested trip length (placeId + nights) plus optional transfers. No hotels, no activities, no leftover TBD nights. Always read the returned `status` (stage, approveButtonClickable, errors, stops, fixes). On failure read `code` + `hint` and retry once — never invent a second itinerary. If Approve Stops is clickable, STOP this turn and wait for the human — do not look up hotels or patch days yet, even if they asked for a full trip.",
     inputSchema: z.object({
       title: z.string().describe("The title of the itinerary"),
       kind: z
@@ -130,7 +130,7 @@ export const createDocument = ({
         status,
         content:
           status?.nextAction ??
-          "Stops itinerary is visible. Read status if present. Do not createDocument again.",
+          "Stops itinerary is visible. STOP — wait for Approve Stops. Do not add hotels or days. Do not createDocument again.",
       };
     },
   });

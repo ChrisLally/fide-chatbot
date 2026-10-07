@@ -26,7 +26,7 @@ export const patchItinerary = ({
 }: PatchItineraryProps) =>
   tool({
     description:
-      "Apply a batch of typed itinerary ops in one call (`patches: [...]`, even for a single op). Always edits the current document (latest). Hotels only after Approve Stops; day blocks only after stays. Address stops/days by stopId/dayId. Pass did:fide:0x… ids. Always read returned `status` before your next message — re-evaluate intent if stage/hotels/days already match what you planned.",
+      "Apply a batch of typed itinerary ops in one call (`patches: [...]`, even for a single op). Always edits the current document (latest). Hotels only after Approve Stops; day blocks only after stays. If stage is still stops, do not call this for hotels/days — wait for the human. Address stops/days by stopId/dayId. Pass did:fide:0x… ids. Always read returned `status` before your next message.",
     inputSchema: z.object({
       id: z.string().describe("The itinerary artifact id"),
       patches: z
@@ -73,10 +73,15 @@ export const patchItinerary = ({
           { placePolicies }
         );
         if (!result.ok) {
+          const code = result.diagnostics[0]?.code;
           return {
             error: result.error,
+            ...(code ? { code } : {}),
             diagnostics: result.diagnostics,
-            hint: "Copy did:fide:0x… from run_view and retry. Use one patches array — do not call patchItinerary in parallel. Address by stopId/dayId. Read status before deciding whether another patch is still needed.",
+            hint:
+              code === "STAGE_BLOCKED"
+                ? "Wait for the human to Approve the current stage, then continue. Do not retry the same hotel/day ops yet."
+                : "Copy did:fide:0x… from run_view and retry. Use one patches array — do not call patchItinerary in parallel. Address by stopId/dayId. Read status before deciding whether another patch is still needed.",
             status: buildItineraryToolStatus(parsed.data, placePolicies),
           };
         }

@@ -118,7 +118,7 @@ export function ItineraryCard({
   return (
     <CardShell
       accent="catalina"
-      eyebrow="Itinerary template"
+      eyebrow="Example itinerary"
       onOpen={
         showOpenAction
           ? () => openTravelContext("itinerary", item.id)

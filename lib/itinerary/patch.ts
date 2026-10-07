@@ -374,7 +374,7 @@ function stageBlocksOp(
     return failDiag(
       opIndex,
       "STAGE_BLOCKED",
-      "Stops are not approved yet. Stop. Do not add hotels or day activities, and do not call createDocument again. Wait for the human to click Approve Stops."
+      "Stops are not approved yet. Wait for the human to click Approve Stops before hotels or day activities."
     );
   }
   if (stage === "stays" && dayOps) {

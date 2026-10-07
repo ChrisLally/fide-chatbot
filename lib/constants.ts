@@ -26,7 +26,7 @@ export function isAuthRequired(): boolean {
 export const DUMMY_PASSWORD = generateDummyPassword();
 
 export const suggestions = [
-  "Suggest a first-timer Australia itinerary from the Catalina templates.",
+  "Draft a first-timer Australia overnight spine from Catalina inventory places.",
   "What are the Top-10 things to do in Adelaide from the guide?",
   "Which Sydney hotels are in the Catalina inventory?",
   "Plan a Sydney → Melbourne → Queenstown route using our transport legs.",

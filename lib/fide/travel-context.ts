@@ -261,7 +261,7 @@ export function normalizeItineraryRow(
     subtitle:
       [duration, bestFor, when].filter(Boolean).join(" · ") ||
       route ||
-      "Itinerary template",
+      "Example itinerary",
     description: readString(
       row,
       ["advisor_note", "description", "route_summary"],

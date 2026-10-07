@@ -106,7 +106,7 @@ function nextActionFor(
     return "Approve is NOT clickable. Fix the listed errors before stopping.";
   }
   if (stage === "stops") {
-    return "Approve Stops IS clickable. STOP and wait for the human to click Approve Stops. Do not add hotels or days.";
+    return "Approve Stops IS clickable. Your turn is DONE. Tell the human the overnight spine is ready and ask them to click Approve Stops. Do not call hotels-by-city, setStopHotel, or setDayBlocks until after that click — even if they asked for hotels and days in the same message.";
   }
   if (stage === "stays") {
     return "Approve Stays IS clickable (or will soft-auto-advance when hotels are complete). Prefer finishing hotels via setStopHotel; do not add day activities until days stage.";
