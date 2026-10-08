@@ -33,10 +33,10 @@ import { createTurnEntityBinder } from "@/lib/itinerary/entity-binder";
 import {
   createStreamId,
   deleteChatById,
-  ensureSessionUser,
   getChatById,
   getMessageCountByUserId,
   getMessagesByChatId,
+  requireSessionUser,
   saveChat,
   saveMessages,
   updateChatTitleById,
@@ -89,12 +89,15 @@ export async function POST(request: Request) {
       return new ChatbotError("unauthorized:chat").toResponse();
     }
 
-    // JWTs can outlive PGlite rows after a wipe/migrate — recreate missing user.
-    await ensureSessionUser({
-      id: session.user.id,
-      email: session.user.email,
-      type: session.user.type === "regular" ? "regular" : "guest",
-    });
+    // Stale JWT after DB wipe/delete — do not recreate; force re-auth.
+    try {
+      await requireSessionUser({ id: session.user.id });
+    } catch (error) {
+      if (error instanceof ChatbotError) {
+        return error.toResponse();
+      }
+      throw error;
+    }
 
     const chatModel = allowedModelIds.has(selectedChatModel)
       ? selectedChatModel

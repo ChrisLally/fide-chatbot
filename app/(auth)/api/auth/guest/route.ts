@@ -35,8 +35,8 @@ export async function GET(request: Request) {
     secureCookie: !isDevelopmentEnvironment,
   });
 
-  // Token can outlive the PGlite row (DB wipe / migrate). Only skip
-  // guest minting when the session user still exists.
+  // Only reuse an existing guest cookie when the User row still exists.
+  // Stale JWTs (DB wipe/delete) mint a fresh guest — never restore the old id.
   if (token?.id) {
     const existing = await getUserById(String(token.id));
     if (existing) {

@@ -9,7 +9,8 @@ import { ChatShell } from "@/components/chat/shell";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ActiveChatProvider } from "@/hooks/use-active-chat";
 import { guestRegex, isAuthRequired } from "@/lib/constants";
-import { auth } from "../(auth)/auth";
+import { getUserById } from "@/lib/db/queries";
+import { auth, signOut } from "../(auth)/auth";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -29,6 +30,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
 async function SidebarShell({ children }: { children: React.ReactNode }) {
   const [session, cookieStore] = await Promise.all([auth(), cookies()]);
+
+  // Cookie/JWT can outlive the User row — never auto-restore; clear session.
+  if (session?.user?.id) {
+    const liveUser = await getUserById(session.user.id);
+    if (!liveUser) {
+      await signOut({ redirect: false });
+      if (isAuthRequired()) {
+        redirect("/login");
+      }
+      redirect(`/api/auth/guest?redirectUrl=${encodeURIComponent("/")}`);
+    }
+  }
 
   if (isAuthRequired()) {
     const email = session?.user?.email ?? "";

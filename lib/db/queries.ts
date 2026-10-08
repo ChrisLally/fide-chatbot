@@ -60,65 +60,22 @@ export async function getUserById(id: string): Promise<User | null> {
 }
 
 /**
- * JWT can outlive PGlite rows (wipe/migrate). Recreate a missing user with
- * the same id so existing cookies keep working.
+ * Session cookies are not enough — the User row must still exist.
+ * Never auto-recreate (guest or regular); callers should 401 / sign out.
  */
-export async function ensureSessionUser({
+export async function requireSessionUser({
   id,
-  email,
-  type = "guest",
 }: {
   id: string;
-  email?: string | null;
-  type?: "guest" | "regular";
 }): Promise<User> {
   const existing = await getUserById(id);
   if (existing) {
     return existing;
   }
-
-  const db = await getDb();
-  const isGuest = type === "guest";
-  const restoredEmail = isGuest
-    ? email && /^guest-\d+$/.test(email)
-      ? email
-      : `guest-${Date.now()}`
-    : email && email.includes("@")
-      ? email
-      : `restored-${id.slice(0, 8)}@local`;
-  const password = generateHashedPassword(generateUUID());
-
-  try {
-    const [created] = await db
-      .insert(user)
-      .values({
-        id,
-        email: restoredEmail,
-        password,
-        isAnonymous: isGuest,
-      })
-      .returning();
-    return created;
-  } catch (error) {
-    // Concurrent recreate — re-read.
-    const raced = await getUserById(id);
-    if (raced) {
-      return raced;
-    }
-    console.error("Failed to ensure session user:", error);
-    throw new ChatbotError(
-      "bad_request:database",
-      "Failed to ensure session user"
-    );
-  }
-}
-
-/** @deprecated Prefer ensureSessionUser — kept for call-site compatibility. */
-export async function ensureGuestUser(args: {
-  id: string;
-  email?: string | null;
-}): Promise<User> {
-  return ensureSessionUser({ ...args, type: "guest" });
+  throw new ChatbotError(
+    "unauthorized:auth",
+    "Session user no longer exists; sign in again"
+  );
 }
 
 export async function createUser(email: string, password: string) {
