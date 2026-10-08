@@ -28,14 +28,10 @@ export async function POST(request: Request) {
       ).toResponse();
     }
 
-    if (
-      provider === "google" &&
-      !process.env.GOOGLE_GENERATIVE_AI_API_KEY &&
-      !process.env.GEMINI_API_KEY
-    ) {
+    if (provider === "google") {
       return new ChatbotError(
         "bad_request:api",
-        "GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY is not configured"
+        "Google Live uses @google/genai (Vertex). Call /api/realtime/google-live/credentials instead of the AI SDK setup route."
       ).toResponse();
     }
 

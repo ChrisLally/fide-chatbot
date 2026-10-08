@@ -1,6 +1,5 @@
 "use client";
 
-import { google } from "@ai-sdk/google";
 import { xai } from "@ai-sdk/xai";
 import {
   Experimental_AbstractRealtimeSession,
@@ -22,7 +21,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { realtimeInstructions, VOICE_MODELS, type VoiceProvider } from "@/lib/ai/realtime";
+import { useGoogleLive } from "@/components/voice/use-google-live";
+import {
+  realtimeInstructions,
+  VOICE_MODELS,
+  type VoiceProvider,
+} from "@/lib/ai/realtime";
 import { cn } from "@/lib/utils";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -158,20 +162,19 @@ function useVoiceRealtime(options: Experimental_RealtimeSessionOptions) {
   };
 }
 
-export function RealtimeVoiceTest() {
-  const [selectedProvider, setSelectedProvider] = useState<VoiceProvider>("xai");
+function XaiVoicePanel({
+  disabled,
+}: {
+  disabled: boolean;
+}) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  const activeModelInfo = VOICE_MODELS[selectedProvider];
-
-  const model = useMemo(() => {
-    if (selectedProvider === "google") {
-      return (google.experimental_realtime as any)(activeModelInfo.id);
-    }
-    return xai.experimental_realtime(activeModelInfo.id);
-  }, [selectedProvider, activeModelInfo.id]);
+  const model = useMemo(
+    () => xai.experimental_realtime(VOICE_MODELS.xai.id),
+    []
+  );
 
   const sessionConfig = useMemo(
     () => ({
@@ -217,18 +220,14 @@ export function RealtimeVoiceTest() {
     }
   }, []);
 
-  const handleRealtimeError = useCallback((nextError: Error) => {
-    setError(nextError.message);
-  }, []);
-
   const realtime = useVoiceRealtime({
     model,
     api: {
-      token: `${basePath}/api/realtime/setup?provider=${selectedProvider}`,
+      token: `${basePath}/api/realtime/setup?provider=xai`,
     },
     sessionConfig,
     onToolCall: handleToolCall,
-    onError: handleRealtimeError,
+    onError: (nextError) => setError(nextError.message),
   });
 
   const stopMediaStream = useCallback(() => {
@@ -245,7 +244,6 @@ export function RealtimeVoiceTest() {
 
   const handleConnect = async () => {
     setError(null);
-
     try {
       await realtime.connect();
     } catch (connectError) {
@@ -284,11 +282,9 @@ export function RealtimeVoiceTest() {
 
   const handleSendText = () => {
     const trimmed = text.trim();
-
     if (!trimmed || realtime.status !== "connected") {
       return;
     }
-
     realtime.sendTextMessage(trimmed);
     setText("");
   };
@@ -296,50 +292,124 @@ export function RealtimeVoiceTest() {
   const isConnected = realtime.status === "connected";
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Voice AI test</h1>
-          <Badge variant="outline">{activeModelInfo.name} ({activeModelInfo.id})</Badge>
-          <Badge
-            variant={realtime.status === "connected" ? "default" : "secondary"}
-          >
-            {statusLabels[realtime.status]}
-          </Badge>
-          {realtime.isCapturing ? <Badge variant="outline">Mic on</Badge> : null}
-          {realtime.isPlaying ? <Badge variant="outline">Speaking</Badge> : null}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Realtime voice via the AI SDK. Switch between xAI Grok Voice and Google Gemini Live below.
-        </p>
-        <div className="flex items-center gap-2 pt-1">
-          <span className="text-xs font-medium text-muted-foreground">Voice Engine:</span>
-          {(["xai", "google"] as VoiceProvider[]).map((prov) => (
-            <Button
-              key={prov}
-              disabled={isConnected || realtime.status === "connecting"}
-              onClick={() => setSelectedProvider(prov)}
-              size="sm"
-              variant={selectedProvider === prov ? "default" : "outline"}
-            >
-              {VOICE_MODELS[prov].providerName} ({VOICE_MODELS[prov].name})
-            </Button>
-          ))}
-        </div>
-      </div>
+    <VoiceControls
+      disabled={disabled}
+      error={error}
+      isCapturing={realtime.isCapturing}
+      isConnected={isConnected}
+      isPlaying={realtime.isPlaying}
+      messages={realtime.messages.map((message) => ({
+        id: message.id,
+        role: message.role === "user" ? "user" : "assistant",
+        text: message.parts
+          .filter((part): part is { type: "text"; text: string } => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      }))}
+      onConnect={handleConnect}
+      onDisconnect={handleDisconnect}
+      onMicToggle={handleMicToggle}
+      onSendText={handleSendText}
+      onTextChange={setText}
+      status={realtime.status}
+      text={text}
+    />
+  );
+}
 
+function GoogleVoicePanel({ disabled }: { disabled: boolean }) {
+  const [text, setText] = useState("");
+  const google = useGoogleLive();
+
+  const handleConnect = async () => {
+    try {
+      await google.connect();
+    } catch {
+      // error state is set inside the hook
+    }
+  };
+
+  const handleMicToggle = async () => {
+    if (google.isCapturing) {
+      google.stopCapture();
+      return;
+    }
+    try {
+      await google.startCapture();
+    } catch (micError) {
+      google.setError(
+        micError instanceof Error ? micError.message : "Microphone access denied"
+      );
+    }
+  };
+
+  const handleSendText = () => {
+    google.sendText(text);
+    setText("");
+  };
+
+  return (
+    <VoiceControls
+      disabled={disabled}
+      error={google.error}
+      isCapturing={google.isCapturing}
+      isConnected={google.status === "connected"}
+      isPlaying={google.isPlaying}
+      messages={google.messages}
+      onConnect={handleConnect}
+      onDisconnect={google.disconnect}
+      onMicToggle={handleMicToggle}
+      onSendText={handleSendText}
+      onTextChange={setText}
+      status={google.status}
+      text={text}
+    />
+  );
+}
+
+function VoiceControls({
+  disabled,
+  error,
+  isCapturing,
+  isConnected,
+  isPlaying,
+  messages,
+  onConnect,
+  onDisconnect,
+  onMicToggle,
+  onSendText,
+  onTextChange,
+  status,
+  text,
+}: {
+  disabled: boolean;
+  error: string | null;
+  isCapturing: boolean;
+  isConnected: boolean;
+  isPlaying: boolean;
+  messages: Array<{ id: string; role: "user" | "assistant"; text: string }>;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  onMicToggle: () => void;
+  onSendText: () => void;
+  onTextChange: (value: string) => void;
+  status: keyof typeof statusLabels | "closing";
+  text: string;
+}) {
+  return (
+    <>
       <div className="flex flex-wrap gap-2">
         <Button
-          disabled={realtime.status === "connecting" || isConnected}
-          onClick={handleConnect}
+          disabled={disabled || status === "connecting" || isConnected}
+          onClick={onConnect}
           type="button"
         >
           <PhoneIcon />
           Connect
         </Button>
         <Button
-          disabled={!isConnected && realtime.status !== "error"}
-          onClick={handleDisconnect}
+          disabled={disabled || (!isConnected && status !== "error")}
+          onClick={onDisconnect}
           type="button"
           variant="outline"
         >
@@ -347,30 +417,39 @@ export function RealtimeVoiceTest() {
           Disconnect
         </Button>
         <Button
-          disabled={!isConnected}
-          onClick={handleMicToggle}
+          disabled={disabled || !isConnected}
+          onClick={onMicToggle}
           type="button"
-          variant={realtime.isCapturing ? "destructive" : "secondary"}
+          variant={isCapturing ? "destructive" : "secondary"}
         >
-          {realtime.isCapturing ? <MicOffIcon /> : <MicIcon />}
-          {realtime.isCapturing ? "Stop mic" : "Start mic"}
+          {isCapturing ? <MicOffIcon /> : <MicIcon />}
+          {isCapturing ? "Stop mic" : "Start mic"}
         </Button>
+        {isCapturing ? <Badge variant="outline">Mic on</Badge> : null}
+        {isPlaying ? <Badge variant="outline">Speaking</Badge> : null}
+        <Badge variant={isConnected ? "default" : "secondary"}>
+          {statusLabels[status] ?? status}
+        </Badge>
       </div>
 
       <div className="flex gap-2">
         <Input
-          disabled={!isConnected}
-          onChange={(event) => setText(event.target.value)}
+          disabled={disabled || !isConnected}
+          onChange={(event) => onTextChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              handleSendText();
+              onSendText();
             }
           }}
           placeholder="Send a text message…"
           value={text}
         />
-        <Button disabled={!isConnected || !text.trim()} onClick={handleSendText} type="button">
+        <Button
+          disabled={disabled || !isConnected || !text.trim()}
+          onClick={onSendText}
+          type="button"
+        >
           Send
         </Button>
       </div>
@@ -384,12 +463,12 @@ export function RealtimeVoiceTest() {
       <section className="flex min-h-80 flex-1 flex-col gap-3 rounded-xl border border-border/50 bg-muted/20 p-4">
         <h2 className="text-sm font-medium text-muted-foreground">Transcript</h2>
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
-          {realtime.messages.length === 0 ? (
+          {messages.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Messages will appear here after you connect.
             </p>
           ) : (
-            realtime.messages.map((message) => (
+            messages.map((message) => (
               <div
                 className={cn(
                   "rounded-lg px-3 py-2 text-sm",
@@ -402,20 +481,58 @@ export function RealtimeVoiceTest() {
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {message.role}
                 </div>
-                <div className="space-y-1">
-                  {message.parts.map((part, index) => {
-                    if (part.type === "text") {
-                      return <p key={`${message.id}-${index}`}>{part.text}</p>;
-                    }
-
-                    return null;
-                  })}
-                </div>
+                <p>{message.text}</p>
               </div>
             ))
           )}
         </div>
       </section>
+    </>
+  );
+}
+
+export function RealtimeVoiceTest() {
+  const [selectedProvider, setSelectedProvider] = useState<VoiceProvider>("xai");
+  const activeModelInfo = VOICE_MODELS[selectedProvider];
+  const switchingLocked = false;
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Voice AI test</h1>
+          <Badge variant="outline">
+            {activeModelInfo.name} ({activeModelInfo.id})
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          xAI uses the AI SDK realtime path. Google uses a regional Vertex Live
+          WebSocket (<code className="text-xs">?key=</code>, no browser project
+          auth) for <code className="text-xs">gemini-3.8-live</code>.
+        </p>
+        <div className="flex items-center gap-2 pt-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            Voice Engine:
+          </span>
+          {(["xai", "google"] as VoiceProvider[]).map((prov) => (
+            <Button
+              key={prov}
+              disabled={switchingLocked}
+              onClick={() => setSelectedProvider(prov)}
+              size="sm"
+              variant={selectedProvider === prov ? "default" : "outline"}
+            >
+              {VOICE_MODELS[prov].providerName} ({VOICE_MODELS[prov].name})
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {selectedProvider === "google" ? (
+        <GoogleVoicePanel disabled={false} key="google" />
+      ) : (
+        <XaiVoicePanel disabled={false} key="xai" />
+      )}
     </div>
   );
 }

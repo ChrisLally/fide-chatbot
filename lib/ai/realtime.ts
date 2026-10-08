@@ -17,12 +17,9 @@ export const VOICE_MODELS: Record<
     providerName: "xAI",
   },
   google: {
-    id:
-      process.env.NEXT_PUBLIC_GOOGLE_VOICE_MODEL ??
-      process.env.GOOGLE_VOICE_MODEL ??
-      "gemini-2.0-flash-exp",
-    name: "Gemini Live",
-    providerName: "Google Vertex / Gemini",
+    id: process.env.GOOGLE_VOICE_MODEL || "gemini-3.8-live",
+    name: "Gemini 3.8 Live",
+    providerName: "Google Vertex",
   },
 };
 
