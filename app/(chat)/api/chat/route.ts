@@ -22,9 +22,7 @@ import {
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
-import { getWeather } from "@/lib/ai/tools/get-weather";
 import { patchItinerary } from "@/lib/ai/tools/patch-itinerary";
-import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { isProductionEnvironment, isTestEnvironment } from "@/lib/constants";
 import { loadFideMcpTools } from "@/lib/fide/mcp-client";
 import { isFideMcpConfigured } from "@/lib/fide/mcp-config";
@@ -228,8 +226,8 @@ export async function POST(request: Request) {
           }
         }
 
+        // Itinerary agent tools only. getWeather and requestSuggestions are switched off.
         const builtInTools = {
-          getWeather,
           createDocument: createDocument({
             session,
             dataStream,
@@ -240,11 +238,6 @@ export async function POST(request: Request) {
             session,
             dataStream,
             entityBinder,
-          }),
-          requestSuggestions: requestSuggestions({
-            session,
-            dataStream,
-            modelId: chatModel,
           }),
         };
 

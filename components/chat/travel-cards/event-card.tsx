@@ -19,7 +19,7 @@ export function EventCard({
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
 
-  const region = readString(raw, ["region_name", "region"]);
+  const region = readString(raw, ["region_name"]);
   const dates = readString(raw, ["dates", "duration"]);
   const url = readString(raw, ["url"]);
   const regionOpenId = readPlaceOpenId(raw, "region");

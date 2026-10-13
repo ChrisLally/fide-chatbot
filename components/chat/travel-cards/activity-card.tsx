@@ -21,7 +21,7 @@ export function ActivityCard({
 
   const duration = readString(raw, ["duration"]);
   const format = readString(raw, ["format"]);
-  const region = readString(raw, ["region_name", "region"]);
+  const region = readString(raw, ["region_name"]);
   const regionOpenId = readPlaceOpenId(raw, "region");
 
   const fields = [

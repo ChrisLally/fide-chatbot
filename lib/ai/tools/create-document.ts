@@ -39,11 +39,9 @@ export const createDocument = ({
       kind: z
         .enum(creatableArtifactKinds)
         .describe("REQUIRED. Must be 'itinerary'."),
-      stops: proposeStopsSchema.shape.stops
-        .optional()
-        .describe(
-          "Overnight stops: placeId (did:fide:0x…) + nights. Required in practice."
-        ),
+      stops: proposeStopsSchema.shape.stops.min(1).describe(
+        "REQUIRED. Overnight stops covering the full trip: [{ placeId: did:fide:0x… (from places-search), nights: number >= 1 }]. Example: [{\"placeId\":\"did:fide:0x4020…\",\"nights\":3}]."
+      ),
       transfers: proposeStopsSchema.shape.transfers.describe(
         "Optional arrival / between / departure legs with transportOptionIri from transport-corridor."
       ),
@@ -91,10 +89,7 @@ export const createDocument = ({
         }).toToolResult();
       }
 
-      const proposeStops =
-        stops && stops.length > 0
-          ? { title, summary, startDate, durationDays, stops, transfers }
-          : undefined;
+      const proposeStops = { title, summary, startDate, durationDays, stops, transfers };
 
       try {
         await documentHandler.onCreateDocument({

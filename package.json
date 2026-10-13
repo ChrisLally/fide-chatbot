@@ -19,12 +19,7 @@
     "test": "export PLAYWRIGHT=True && pnpm exec playwright test",
     "test:unit": "tsx --test lib/**/*.test.ts",
     "test:wm": "bash scripts/test-wm.sh",
-    "replay:baseline": "tsx lib/itinerary/replay/harness.ts",
-    "eval:itinerary": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts",
-    "eval:stage": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts",
-    "eval:route": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts --route",
-    "eval:stays": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts --stays",
-    "eval:days": "tsx --require ./scripts/stub-server-only.cjs scripts/eval-itinerary.ts --days"
+    "replay:baseline": "tsx lib/itinerary/replay/harness.ts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^5.0.106",

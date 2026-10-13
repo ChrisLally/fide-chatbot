@@ -450,6 +450,13 @@ export function ItineraryEditor({
   const parsed = parseClientItinerary(content);
   const editable = !readOnly && isCurrentVersion && status !== "streaming";
 
+  useEffect(() => {
+    if (!parsed.ok) {
+      return;
+    }
+    void ensureFideKindsViaApi(fideIdsIn([parsed.data]));
+  }, [content]);
+
   const placeIdsKey = useMemo(() => {
     if (!parsed.ok) {
       return "";
@@ -547,7 +554,7 @@ export function ItineraryEditor({
       toast.error(approveGate.errors[0] ?? "Fix verification errors first");
       return;
     }
-    const approved = approveCurrentStage(itinerary, { by: "human" });
+    const approved = approveCurrentStage(itinerary);
     const next = { ...approved, version: approved.version ?? (itinerary.version ?? 1) + 1 };
     onSaveContent(serializeClientItinerary(next), false);
     toast.success(`${STAGE_LABELS[stage]} approved`);
@@ -559,10 +566,6 @@ export function ItineraryEditor({
       });
     }
   };
-
-  useEffect(() => {
-    void ensureFideKindsViaApi(fideIdsIn([itinerary]));
-  }, [itinerary]);
 
   const handleReopen = (target: "stops" | "stays" | "days") => {
     const next = reopenStage(itinerary, target);

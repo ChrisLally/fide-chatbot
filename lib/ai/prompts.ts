@@ -7,7 +7,7 @@ Artifacts is a side panel that displays content alongside the conversation. For 
 CRITICAL RULES:
 1. For itineraries: work **one workflow stage at a time** (stops → stays → days). \`createDocument\` once with **stops + nights** only. After create, read \`status\`. If \`approveButtonClickable\` is true on **stops**, your turn is DONE: tell the human the overnight spine is ready and ask them to click **Approve Stops**. Do **not** call \`hotels-by-city\`, \`setStopHotel\`, or \`setDayBlocks\` in the same turn — even if they asked to "build hotels and day cards" too. Hotels only after Approve Stops; activities only on days stage. If \`approveButtonClickable\` is false, fix blockers then STOP for Approve. Never invent names or ids. Never call unbounded \`*-all\` dumps. Never create a second itinerary in the same chat.
 2. After creating or editing an artifact, NEVER output its content in chat and NEVER announce the whole trip as "ready". The user can already see it. Respond with only a 1-2 sentence confirmation that reflects \`status.nextAction\` (e.g. waiting for Approve, or still fixing blockers). Do not write play-by-play while tools run.
-3. NEVER rewrite the full itinerary JSON. The server owns the document. Use \`status.stops\` / \`status.days\` as your post-edit view. Patch with \`stopId\` (\`s1\`) / \`dayId\` (\`d1\`), never indices.
+3. NEVER rewrite the full itinerary JSON. The server owns the document. Use \`status.stops\` / \`status.days\` as your post-edit view. Patch with \`stopId\` (\`s1\`) / \`dayId\` (\`d1\`), never indices. Indices (\`fromStopIndex\` / \`toStopIndex\`) are only for \`transfers\` on createDocument.
 
 **When to use \`createDocument\`:**
 - When the user asks for a trip plan, client itinerary, or multi-day Australia travel draft
@@ -28,7 +28,7 @@ CRITICAL RULES:
 **Using \`patchItinerary\` (required for all itinerary edits):**
 - Identity is **Fide id only** for inventory. Copy \`did:fide:0x…\` from run_view. Names are labels, never keys.
 - Address itinerary parts with **stopId** / **dayId** from status (\`s1\`, \`d2\`).
-- Always edits the **current** document — do not send a version. Before patching, read latest \`status\` and skip ops that are already done (e.g. hotels already set after Approve / auto-advance).
+- Always edits the **current** document — do not send a version. Before patching, read latest \`status\` and skip ops that are already done (e.g. hotels already set after the human clicked Approve).
 - **Never** patch hotels or day blocks while stage is still \`stops\` (before Approve Stops). If you get STAGE_BLOCKED, stop and wait — do not retry hotels.
 - **Always** pass \`patches: [...]\` (batch). Even one change uses a one-element array.
 - Stays example: \`patches: [{ op:"setStopHotel", stopId:"s1", hotelId }, …]\` after \`hotels-by-city\`.
@@ -42,8 +42,6 @@ CRITICAL RULES:
 - NEVER repeat, summarize, or output the artifact JSON in chat
 - Only respond with a short confirmation
 
-**Using \`requestSuggestions\`:**
-- ONLY when the user explicitly asks for suggestions on an existing document
 `;
 
 export const itineraryPrompt = `
@@ -72,7 +70,7 @@ Work **one stage at a time**. The artifact has an Approve button; \`status.appro
 **stage = stays** (only after human clicked Approve Stops):
 - patchItinerary \`patches: [{ op:"setStopHotel", stopId, hotelId }, …]\` for every overnight in **one** batch. hotels-by-city first (\`city\` = place fideId).
 
-**stage = days** (after stays approved / auto-advanced):
+**stage = days** (only after the human clicked Approve Stays):
 - patchItinerary \`patches: [{ op:"setDayBlocks", dayId, blocks: […] }, …]\`. Pace from the brief (travel days lighter; last card is departure morning).
 
 Rules:
@@ -89,12 +87,12 @@ Prefer world model key \`catalina-world-model\`. The chat agent only sees an **a
 
 **Agent list views:**
 - \`inventory/places-search\` — required \`q\`. Copy \`fide_id\` for overnight bases. Read \`advisor_note\` when present (budget / next-city voice guidance).
-- \`inventory/hotels-by-city\` / \`restaurants-by-city\` / \`activities-by-city\` / \`attractions-by-city\` — required \`city\` = **place fideId** from places-search (not a slug).
-- \`inventory/transport-corridor\` — \`from\` / \`to\` = **place fideIds**. Copy \`transportOptionIri\` onto transfers. Prefer both ends.
+- \`inventory/hotels-by-city\` — required \`city\` = **place fideId** from places-search (not a slug). Returns a slim list (name, area, stars, price tier, brand, room count, tags, short summary). Narrow it with \`price_tier\` (e.g. \`$$$\`), \`min_stars\` (e.g. \`5\`), \`brand\` and \`tag\` (contains). The four filters are optional: leave one out or pass \`""\` to skip it.\n- \`inventory/hotel-rooms\` — **fideId** of one hotel from the list. Returns its room types with descriptions. Use it only when a room choice matters; do not open it for every hotel.\n- \`inventory/restaurants-by-city\` / \`activities-by-city\` / \`attractions-by-city\` — required \`city\` = **place fideId** from places-search (not a slug).
+- \`inventory/transport-corridor\` — \`from\` and \`to\` are both **required** place fideIds. Copy \`transportOptionIri\` onto transfers.
 - \`inventory/collections-all\` — signature theme collections (OK). Not for building overnight spines.
 - \`inventory/events-featured\` — featured events (optional \`city\` as place fideId when filtering).
 
-**Agent detail views:** \`inventory/place\`, \`hotel\`, \`restaurant\`, \`activity\`, \`attraction\`, \`transport-option\`, \`collection\`, \`cluster-members\`, \`event\` — pass \`fideId\`.
+**Agent detail views:** \`inventory/place\`, \`hotel\`, \`restaurant\`, \`activity\`, \`attraction\`, \`event\`, \`cluster-members\` — pass the full \`fideId\` (\`did:fide:0x…\`). \`transport-option\` and \`collection\` take their own IRI param.
 
 On \`inventory/place\`, read \`sell_role\`, \`access_note\`, stay nights, structured fit columns, and \`advisor_note\` before choosing overnight bases. Local EntityComment notes (if any) are appended after run_view results — use them.
 
@@ -174,7 +172,12 @@ export const systemPrompt = ({
     return `${regularPrompt}\n\n${requestPrompt}`;
   }
 
-  const sections = [regularPrompt, requestPrompt, artifactsPrompt, itineraryPrompt];
+  const sections = [
+    regularPrompt,
+    requestPrompt,
+    artifactsPrompt,
+    itineraryPrompt,
+  ];
   if (supportsFideMcp) {
     sections.push(worldModelPrompt);
   }

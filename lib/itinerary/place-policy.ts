@@ -3,7 +3,6 @@ import { fideIdHex, normalizeDid, shortEntityId } from "./schema";
 export type PlacePolicy = {
   fideId: string;
   placeName: string;
-  placeIri?: string;
   /** Graph `#stay-min-nights` — hard floor when set. */
   stayMinNights?: number;
   /** Graph `#stay-recommended-nights` — preferred target when allocating. */
@@ -11,7 +10,6 @@ export type PlacePolicy = {
   /** Graph `#stay-max-nights` — hard ceiling when set. */
   stayMaxNights?: number;
   incompatibleOvernightFideIds: string[];
-  incompatibleOvernightIris: string[];
   overnightRequiresBrief: boolean;
 };
 
@@ -96,7 +94,6 @@ export function placePolicyFromViewRow(
     fideId,
     placeName:
       rowVal(row, "place", "place_name", "placeName") || shortEntityId(fideId),
-    placeIri: rowVal(row, "iri", "place_iri") || undefined,
     stayMinNights: parseIntish(rowVal(row, "stay_min_nights", "stayMinNights")),
     stayRecommendedNights: parseIntish(
       rowVal(
@@ -116,9 +113,6 @@ export function placePolicyFromViewRow(
         "incompatibleOvernightFideIds"
       )
     ).map(normalizeDid),
-    incompatibleOvernightIris: splitPipe(
-      rowVal(row, "incompatible_overnight_iris", "incompatibleOvernightIris")
-    ),
     overnightRequiresBrief: parseBool(
       rowVal(row, "overnight_requires_brief", "overnightRequiresBrief")
     ),

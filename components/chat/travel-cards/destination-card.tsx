@@ -40,7 +40,7 @@ export function DestinationCard({
   const { openTravelContext } = useContextNav();
   const raw = item.raw;
 
-  const region = readString(raw, ["region_name", "region", "area"]);
+  const region = readString(raw, ["region_name", "area"]);
   const vibe = readString(raw, ["vibe", "style"]);
   const recommended = readString(raw, ["stay_recommended_nights"]);
   const stayMin = readString(raw, ["stay_min_nights"]);
@@ -52,10 +52,7 @@ export function DestinationCard({
   const iata = readString(raw, ["iata_code"]);
   const sellRole = readString(raw, ["sell_role"]);
   const accessNote = readString(raw, ["access_note"]);
-  const incompatible = readString(raw, [
-    "incompatible_overnights",
-    "incompatible_overnight_iris",
-  ]);
+  const incompatible = readString(raw, ["incompatible_overnights"]);
   const requiresBriefRaw = readString(raw, ["overnight_requires_brief"]);
   const requiresBrief =
     requiresBriefRaw === "true" ||

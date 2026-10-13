@@ -20,7 +20,7 @@ export function RestaurantCard({
   const raw = item.raw;
 
   const category = readString(raw, ["product_category", "category"]);
-  const region = readString(raw, ["region_name", "region"]);
+  const region = readString(raw, ["region_name"]);
   const address = readString(raw, ["address"]);
   const telephone = readString(raw, ["telephone", "phone"]);
   const url = readString(raw, ["url"]);

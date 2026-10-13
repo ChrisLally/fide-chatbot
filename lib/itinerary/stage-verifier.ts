@@ -49,34 +49,12 @@ function isCarTransportMode(mode: string | undefined): boolean {
 
 function stopMatchesIncompatible(
   otherPlaceId: string,
-  otherPlaceName: string,
   policy: NonNullable<ReturnType<typeof policyForStop>>
 ): boolean {
   const otherDid = normalizeDid(otherPlaceId);
-  if (
-    policy.incompatibleOvernightFideIds.some(
-      (id) => normalizeDid(id) === otherDid
-    )
-  ) {
-    return true;
-  }
-  const otherIri = otherPlaceId.includes("#place=")
-    ? otherPlaceId
-    : undefined;
-  if (
-    otherIri &&
-    policy.incompatibleOvernightIris.some((iri) => iri === otherIri)
-  ) {
-    return true;
-  }
-  // IRI fingerprint match via slug in incompatible iris
-  return policy.incompatibleOvernightIris.some((iri) => {
-    const slug = iri.split("#place=")[1];
-    return slug
-      ? matchesCatalinaPlaceSlug(otherPlaceId, slug) ||
-          otherPlaceName.toLowerCase().includes(slug.replace(/-/g, " "))
-      : false;
-  });
+  return policy.incompatibleOvernightFideIds.some(
+    (id) => normalizeDid(id) === otherDid
+  );
 }
 
 /** Deterministic must-pass checks for the active stage (no LLM). */
@@ -154,7 +132,7 @@ export function verifyItineraryStage(
 
     for (let j = i + 1; j < itinerary.stops.length; j++) {
       const other = itinerary.stops[j];
-      if (stopMatchesIncompatible(other.placeId, other.placeName, policy)) {
+      if (stopMatchesIncompatible(other.placeId, policy)) {
         errors.push(
           `Hard rule: do not use both ${stop.placeName} and ${other.placeName} as overnight bases — pick one (world-model incompatible-overnight-with).`
         );
@@ -162,7 +140,7 @@ export function verifyItineraryStage(
       const otherPolicy = policyForStop(placePolicies, other.placeId);
       if (
         otherPolicy &&
-        stopMatchesIncompatible(stop.placeId, stop.placeName, otherPolicy)
+        stopMatchesIncompatible(stop.placeId, otherPolicy)
       ) {
         // Avoid duplicate message if both edges exist
         const dup = errors.some(

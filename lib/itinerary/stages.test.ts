@@ -33,12 +33,10 @@ const testPolicies: PlacePolicyMap = new Map([
     {
       fideId: leiId,
       placeName: "Lady Elliot Island",
-      placeIri: "https://www.catalinaquest.ai/#place=lady-elliot-island",
       stayMinNights: 3,
       stayRecommendedNights: 3,
       stayMaxNights: 5,
       incompatibleOvernightFideIds: [],
-      incompatibleOvernightIris: [],
       overnightRequiresBrief: false,
     },
   ],
@@ -47,14 +45,10 @@ const testPolicies: PlacePolicyMap = new Map([
     {
       fideId: cairnsId,
       placeName: "Cairns",
-      placeIri: "https://www.catalinaquest.ai/#place=cairns",
       stayMinNights: 2,
       stayRecommendedNights: 3,
       stayMaxNights: 4,
       incompatibleOvernightFideIds: [pdId],
-      incompatibleOvernightIris: [
-        "https://www.catalinaquest.ai/#place=port-douglas",
-      ],
       overnightRequiresBrief: false,
     },
   ],
@@ -63,14 +57,10 @@ const testPolicies: PlacePolicyMap = new Map([
     {
       fideId: pdId,
       placeName: "Port Douglas",
-      placeIri: "https://www.catalinaquest.ai/#place=port-douglas",
       stayMinNights: 3,
       stayRecommendedNights: 4,
       stayMaxNights: 5,
       incompatibleOvernightFideIds: [cairnsId],
-      incompatibleOvernightIris: [
-        "https://www.catalinaquest.ai/#place=cairns",
-      ],
       overnightRequiresBrief: false,
     },
   ],

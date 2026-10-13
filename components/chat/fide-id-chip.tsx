@@ -8,8 +8,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { extractRows, readString } from "@/lib/fide/travel-context";
-import { ensureFideKindsViaApi } from "@/lib/itinerary/kind-client";
-import { knownFideKind } from "@/lib/itinerary/kind-cache";
 import {
   fideIdEntityType,
   fideIdEntityTypeLabel,
@@ -19,7 +17,6 @@ import {
   isClusterFideId,
   shortEntityId,
   subjectFingerprintFromFideId,
-  type PeekEntityKind,
 } from "@/lib/itinerary/schema";
 import { cn } from "@/lib/utils";
 
@@ -31,75 +28,7 @@ function fullFideId(id: string): string {
   return hex ? `did:fide:${hex}` : id;
 }
 
-const DETAIL_QUERY: Record<
-  PeekEntityKind,
-  { query: string; legacyIriParam: string }
-> = {
-  hotel: { query: "hotelDetail", legacyIriParam: "hotel_iri" },
-  activity: { query: "activityDetail", legacyIriParam: "activity_iri" },
-  attraction: { query: "attractionDetail", legacyIriParam: "attraction_iri" },
-  destination: { query: "destinationDetail", legacyIriParam: "place_iri" },
-};
-
-async function fetchMemberIri(id: string): Promise<string | null> {
-  await ensureFideKindsViaApi([id]);
-  const kind = knownFideKind(id);
-  if (!kind) {
-    return null;
-  }
-
-  const candidates: PeekEntityKind[] =
-    kind === "activity" ? ["activity", "attraction"] : [kind];
-
-  for (const candidate of candidates) {
-    const config = DETAIL_QUERY[candidate];
-    const hex = fideIdHex(id);
-    if (!hex) {
-      continue;
-    }
-    const fideId = id.startsWith("did:fide:") ? id : `did:fide:${hex}`;
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/context/query`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: config.query,
-            params: {
-              fideId,
-              subjectFingerprint: subjectFingerprintFromFideId(id) ?? "",
-              [config.legacyIriParam]: "",
-            },
-          }),
-        }
-      );
-      if (!response.ok) {
-        continue;
-      }
-      const payload = (await response.json()) as { result?: unknown };
-      const row = extractRows(payload.result)[0];
-      if (!row) {
-        continue;
-      }
-      const iri = readString(row, [
-        "iri",
-        "hotel_iri",
-        "activity_iri",
-        "attraction_iri",
-        "place_iri",
-      ]);
-      if (iri) {
-        return iri;
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-  return null;
-}
-
-async function fetchClusterMemberIris(id: string): Promise<string[]> {
+async function fetchClusterMemberIds(id: string): Promise<string[]> {
   const hex = fideIdHex(id);
   if (!hex) {
     return [];
@@ -122,16 +51,16 @@ async function fetchClusterMemberIris(id: string): Promise<string[]> {
     }
     const payload = (await response.json()) as { result?: unknown };
     const rows = extractRows(payload.result);
-    const iris: string[] = [];
+    const memberIds: string[] = [];
     const seen = new Set<string>();
     for (const row of rows) {
-      const iri = readString(row, ["member_iri"]);
-      if (iri && !seen.has(iri)) {
-        seen.add(iri);
-        iris.push(iri);
+      const memberId = readString(row, ["member_fide_id"]);
+      if (memberId && !seen.has(memberId)) {
+        seen.add(memberId);
+        memberIds.push(memberId);
       }
     }
-    return iris;
+    return memberIds;
   } catch {
     return [];
   }
@@ -165,22 +94,18 @@ function MetaRow({
 
 /**
  * Truncated Fide id chip. Click opens a dialog with the full id breakdown.
- * Cluster ids list all member IRIs; the anchor fingerprint is the earliest
+ * Cluster ids list all member Fide ids; the anchor fingerprint is the earliest
  * accepted sameAs statement in the component — not a preferred member.
  */
 export function FideIdChip({
   id,
   className,
-  iri: iriProp,
 }: {
   id: string;
   className?: string;
-  /** Optional known member IRI — skips the lookup when provided. */
-  iri?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [memberIri, setMemberIri] = useState<string | null>(iriProp ?? null);
-  const [memberIris, setMemberIris] = useState<string[]>([]);
+  const [memberIds, setMemberIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   const short = shortEntityId(id);
@@ -200,18 +125,12 @@ export function FideIdChip({
     setLoading(true);
 
     const load = cluster
-      ? fetchClusterMemberIris(id).then((iris) => {
+      ? fetchClusterMemberIds(id).then((ids) => {
           if (!cancelled) {
-            setMemberIris(iris);
+            setMemberIds(ids);
           }
         })
-      : memberIri || iriProp
-        ? Promise.resolve()
-        : fetchMemberIri(id).then((value) => {
-            if (!cancelled) {
-              setMemberIri(value);
-            }
-          });
+      : Promise.resolve();
 
     load.finally(() => {
       if (!cancelled) {
@@ -222,7 +141,7 @@ export function FideIdChip({
     return () => {
       cancelled = true;
     };
-  }, [open, id, cluster, iriProp, memberIri]);
+  }, [open, id, cluster]);
 
   if (!short) {
     return null;
@@ -231,11 +150,11 @@ export function FideIdChip({
   const entityTypeDisplay =
     entityType && entityTypeLabel
       ? `${entityTypeLabel} (${entityType})`
-      : entityType ?? "—";
+      : (entityType ?? "—");
   const referenceTypeDisplay =
     referenceType && referenceTypeLabel
       ? `${referenceTypeLabel} (${referenceType})`
-      : referenceType ?? "—";
+      : (referenceType ?? "—");
 
   return (
     <>
@@ -268,29 +187,25 @@ export function FideIdChip({
             <MetaRow label="Entity type" value={entityTypeDisplay} />
             <MetaRow label="Reference type" value={referenceTypeDisplay} />
             <MetaRow
-              label={
-                cluster
-                  ? "Anchor statement fingerprint"
-                  : "Fingerprint"
-              }
+              label={cluster ? "Anchor statement fingerprint" : "Fingerprint"}
               mono
               value={fingerprint ?? "—"}
             />
             {cluster ? (
               <div className="space-y-1">
                 <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                  Member IRIs
+                  Member Fide ids
                 </p>
                 {loading ? (
                   <p className="text-[12px] text-muted-foreground">Loading…</p>
-                ) : memberIris.length > 0 ? (
+                ) : memberIds.length > 0 ? (
                   <ul className="space-y-1.5">
-                    {memberIris.map((iri) => (
+                    {memberIds.map((memberId) => (
                       <li
                         className="break-all font-mono text-[12px] leading-relaxed text-foreground"
-                        key={iri}
+                        key={memberId}
                       >
-                        {iri}
+                        {memberId}
                       </li>
                     ))}
                   </ul>
@@ -298,15 +213,7 @@ export function FideIdChip({
                   <p className="text-[12px] text-muted-foreground">—</p>
                 )}
               </div>
-            ) : (
-              <MetaRow
-                label="IRI"
-                mono
-                value={
-                  loading ? "Looking up…" : memberIri ?? iriProp ?? "—"
-                }
-              />
-            )}
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
 import { loadCommentsForPayload } from "@/lib/fide/entity-comments-enrich";
 import { createFideMcpClient } from "@/lib/fide/mcp-client";
+import { validateAgentViewParams } from "@/lib/fide/agent-views";
 import { ChatbotError } from "@/lib/errors";
 
 const contextQueries = {
@@ -163,6 +164,12 @@ export async function POST(request: Request) {
     const queryKey = contextQueries[input.query];
     const params = { ...(input.params ?? {}) };
 
+    // Places and other entities are addressed by full Fide id only (no slugs, IRIs, or names).
+    const paramError = validateAgentViewParams(params);
+    if (paramError) {
+      return new ChatbotError("bad_request:api", paramError).toResponse();
+    }
+
     // Detail SQL matches on fingerprint; peeks often send only fideId.
     if (
       typeof params.fideId === "string" &&
@@ -175,15 +182,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // run_query requires every $param referenced in SQL — fill optional/legacy empties.
+    // run_query requires every $param referenced in SQL — fill optional empties.
     // Events list (`inventory/events-featured`) needs $city; empty = all featured events.
     for (const key of [
-      "hotel_iri",
-      "place_iri",
-      "activity_iri",
-      "attraction_iri",
-      "event_iri",
-      "restaurant_iri",
       "collection_iri",
       "itinerary_iri",
       "option_iri",

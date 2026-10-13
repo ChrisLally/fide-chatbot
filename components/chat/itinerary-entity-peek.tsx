@@ -2,6 +2,9 @@
 
 import { ArrowLeftIcon, XIcon } from "lucide-react";
 import useSWR from "swr";
+import { FideIdChip } from "@/components/chat/fide-id-chip";
+import { EntityDetail } from "@/components/chat/travel-cards/entity-detail";
+import { StatusBadge } from "@/components/chat/travel-cards/shared";
 import type { ContextCategory } from "@/lib/fide/context-nav";
 import {
   extractRows,
@@ -9,50 +12,39 @@ import {
   type TravelContextItem,
 } from "@/lib/fide/travel-context";
 import {
-  coerceGraphEntityId,
   fideIdHex,
-  peekKindFromEntityId,
-  subjectFingerprintFromFideId,
   type ItineraryPeekKind,
-  type PeekEntityKind,
+  subjectFingerprintFromFideId,
 } from "@/lib/itinerary/schema";
-import { EntityDetail } from "@/components/chat/travel-cards/entity-detail";
-import { StatusBadge } from "@/components/chat/travel-cards/shared";
-import { FideIdChip } from "@/components/chat/fide-id-chip";
 
 const peekDetailQueries: Record<
   ItineraryPeekKind,
-  { category: ContextCategory; query: string; paramName: string; legacyIriParam?: string }
+  { category: ContextCategory; query: string; paramName: string }
 > = {
   hotel: {
     category: "Hotels",
     query: "hotelDetail",
     paramName: "fideId",
-    legacyIriParam: "hotel_iri",
   },
   activity: {
     category: "Activities",
     query: "activityDetail",
     paramName: "fideId",
-    legacyIriParam: "activity_iri",
   },
   attraction: {
     category: "Attractions",
     query: "attractionDetail",
     paramName: "fideId",
-    legacyIriParam: "attraction_iri",
   },
   destination: {
     category: "Destinations",
     query: "destinationDetail",
     paramName: "fideId",
-    legacyIriParam: "place_iri",
   },
   transportation: {
     category: "Transportation",
     query: "transportationDetail",
     paramName: "option_iri",
-    legacyIriParam: "option_iri",
   },
 };
 
@@ -94,19 +86,13 @@ async function fetchPeekDetailOnce(
     params = { option_iri: coerceRouteOptionIri(id) };
   } else {
     const hex = fideIdHex(id);
-    const fingerprint = hex ? subjectFingerprintFromFideId(id) : null;
-    const legacyKey = config.legacyIriParam ?? config.paramName;
-    params = hex
-      ? {
-          fideId: id.startsWith("did:fide:") ? id : `did:fide:${hex}`,
-          subjectFingerprint: fingerprint ?? "",
-          [legacyKey]: "",
-        }
-      : {
-          fideId: "",
-          subjectFingerprint: "",
-          [legacyKey]: coerceGraphEntityId(id, kind),
-        };
+    if (!hex) {
+      throw new Error(`Not a full Fide id: ${id}`);
+    }
+    params = {
+      fideId: id.startsWith("did:fide:") ? id : `did:fide:${hex}`,
+      subjectFingerprint: subjectFingerprintFromFideId(id) ?? "",
+    };
   }
 
   const response = await fetch(
@@ -133,43 +119,16 @@ async function fetchPeekDetailOnce(
   return normalizeContextRow(config.category, row, 0);
 }
 
-/** Prefer kind from id fragment when present; otherwise try sibling kinds. */
+/** One lookup, using the kind the itinerary already holds for this full Fide id. */
 async function fetchPeekDetail(
   kind: ItineraryPeekKind,
   id: string
-): Promise<{ item: TravelContextItem | null; resolvedKind: ItineraryPeekKind }> {
-  if (kind === "transportation" || id.includes("#route=")) {
-    const item = await fetchPeekDetailOnce("transportation", id);
-    return { item, resolvedKind: "transportation" };
-  }
-
-  const preferred = (peekKindFromEntityId(id) ?? kind) as PeekEntityKind;
-  const order: PeekEntityKind[] = [
-    preferred,
-    ...(["destination", "attraction", "activity", "hotel"] as const).filter(
-      (k) => k !== preferred
-    ),
-  ];
-
-  const idCandidates = Array.from(
-    new Set(
-      order.flatMap((candidateKind) => {
-        const coerced = coerceGraphEntityId(id, candidateKind);
-        return coerced === id ? [id] : [id, coerced];
-      })
-    )
-  );
-
-  for (const candidate of order) {
-    for (const candidateId of idCandidates) {
-      const item = await fetchPeekDetailOnce(candidate, candidateId);
-      if (item) {
-        return { item, resolvedKind: candidate };
-      }
-    }
-  }
-
-  return { item: null, resolvedKind: preferred };
+): Promise<{
+  item: TravelContextItem | null;
+  resolvedKind: ItineraryPeekKind;
+}> {
+  const item = await fetchPeekDetailOnce(kind, id);
+  return { item, resolvedKind: kind };
 }
 
 export function ItineraryEntityPeek({
@@ -184,8 +143,7 @@ export function ItineraryEntityPeek({
     () => fetchPeekDetail(peek.kind, peek.id)
   );
 
-  const resolvedKind =
-    data?.resolvedKind ?? peekKindFromEntityId(peek.id) ?? peek.kind;
+  const resolvedKind = data?.resolvedKind ?? peek.kind;
   const category = peekDetailQueries[resolvedKind].category;
 
   return (

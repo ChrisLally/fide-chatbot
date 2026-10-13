@@ -25,7 +25,6 @@ import {
   type PlacePolicyMap,
 } from "./place-policy";
 import {
-  approveCurrentStage,
   bumpVersion,
   calendarDayCount,
   clearApprovalsAfterHotelChange,
@@ -529,30 +528,6 @@ function resolveAfterIndex(
   return { ok: true, insertAt: afterIndex + 1 };
 }
 
-/**
- * Soft auto-advance: when stays/days verifier is clean, auto-approve and advance.
- * NEVER auto-approve stops.
- */
-export function maybeSoftAutoAdvance(
-  itinerary: ClientItinerary,
-  options: PatchVerifyOptions = {}
-): ClientItinerary {
-  let current = itinerary;
-  for (let guard = 0; guard < 2; guard++) {
-    const workflow = ensureWorkflow(current);
-    if (workflow.stage !== "stays" && workflow.stage !== "days") {
-      break;
-    }
-    const gate = verifyItineraryStage(current, workflow.stage, {
-      forApprove: true,
-      placePolicies: options.placePolicies,
-    });
-    if (!gate.ok) break;
-    current = approveCurrentStage(current, { by: "auto", bump: false });
-  }
-  return current;
-}
-
 export function applyItineraryPatch(
   previous: ClientItinerary,
   patch: ItineraryPatch,
@@ -604,7 +579,6 @@ export function applyItineraryPatches(
   }
 
   current = bumpVersion(current);
-  current = maybeSoftAutoAdvance(current, options);
   return { ok: true, itinerary: current };
 }
 

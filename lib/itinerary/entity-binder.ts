@@ -1,8 +1,9 @@
+import { rowsFromToolResult } from "@/lib/fide/tool-rows";
 import { knownFideKind, rememberFideKind } from "./kind-cache";
 import {
-  fideIdHex,
   type ClientItinerary,
   type DayBlock,
+  fideIdHex,
   type PeekEntityKind,
 } from "./schema";
 
@@ -53,21 +54,28 @@ export function normalizeEntityName(name: string): string {
 
 function kindFromViewKey(viewKey: string): PeekEntityKind | null {
   const key = viewKey.toLowerCase();
-  if (key.includes("hotel") || key.includes("restaurant") || key.includes("venue")) return "hotel";
+  if (key.includes("restaurant")) return null;
+  if (key.includes("hotel") || key.includes("venue")) return "hotel";
   if (key.includes("activity")) return "activity";
   if (key.includes("attraction")) return "attraction";
-  if (key.includes("place") || key.includes("destination")) return "destination";
+  if (key.includes("place") || key.includes("destination"))
+    return "destination";
   return null;
 }
 
-function nameFromHotelHeading(section: string): string | null {
-  const hotel = section.match(/\*\*Hotel:\*\*\s*(.+)/i);
-  if (hotel?.[1]) return hotel[1].trim();
-  return null;
+function firstString(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
 }
 
 /**
- * Harvest allowlist entities from a run_view tool result (text or JSON-ish).
+ * Harvest allowlist entities from a run_view result's rows (structuredContent).
+ * Rendered text is never parsed: a result without rows harvests nothing.
  */
 export function harvestEntitiesFromRunView(
   viewKey: string,
@@ -78,12 +86,8 @@ export function harvestEntitiesFromRunView(
   if (key.includes("itinerar") || key.includes("same-as")) {
     return [];
   }
-
-  const text =
-    typeof output === "string"
-      ? output
-      : extractText(output);
-  if (!text.trim()) {
+  const rows = rowsFromToolResult(output);
+  if (!rows) {
     return [];
   }
 
@@ -91,74 +95,38 @@ export function harvestEntitiesFromRunView(
   const entities: AllowlistEntity[] = [];
   const seen = new Set<string>();
 
-  // Structured JSON blob inside text
-  tryParseJsonEntities(text, defaultKind, entities, seen);
-
-  // Markdown sections: ### Name … **Fide ID:** did:fide:…
-  const sections = text.split(/\n(?=### )/);
-  for (const section of sections) {
-    const heading = section.match(/^###\s+(.+?)(?:\n|$)/);
-    const headingRaw = heading?.[1]?.trim() ?? "";
-    const fideMatches = [...section.matchAll(FIDE_ID_RE)].map((m) =>
-      normalizeDid(m[0])
-    );
-    if (fideMatches.length === 0) {
+  for (const row of rows) {
+    const fideRaw = firstString(row, ["fide_id", "fideId"]);
+    if (!fideIdHex(fideRaw)) {
       continue;
     }
-
-    const headingIsFide = Boolean(fideIdHex(headingRaw));
-    let name = headingIsFide
-      ? nameFromHotelHeading(section) ||
-        section.match(/\*\*(?:Place|Activity|Attraction|Venue|Name|Hotel):\*\*\s*(.+)/i)?.[1]?.trim() ||
-        ""
-      : headingRaw.replace(/\*\*/g, "").trim();
-
-    // Places format: ### Adelaide + **Fide ID:** …
-    const labeledFide = section.match(/\*\*Fide ID:\*\*\s*(did:fide:0x[0-9a-fA-F]+|0x[0-9a-fA-F]+)/i);
-    const fideId = labeledFide
-      ? normalizeDid(labeledFide[1])
-      : fideMatches[0];
-
-    if (!name && labeledFide && headingRaw && !headingIsFide) {
-      name = headingRaw;
-    }
-
-    if (!fideId || !name) {
+    const fideId = normalizeDid(fideRaw);
+    const name = firstString(row, [
+      "place_name",
+      "place",
+      "hotel_name",
+      "hotel",
+      "activity",
+      "attraction",
+      "restaurant",
+      "event",
+      "name",
+    ]);
+    if (!name) {
       continue;
     }
-
     const kind = defaultKind ?? knownFideKind(fideId);
-    if (!kind) continue;
+    if (!kind) {
+      continue;
+    }
     rememberFideKind(fideId, kind);
 
-    const key = `${kind}:${fideId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    entities.push({
-      fideId,
-      name,
-      kind,
-      source: viewKey,
-    });
-  }
-
-  // Fallback: any fide id in text with weak name
-  if (entities.length === 0) {
-    for (const match of text.matchAll(FIDE_ID_RE)) {
-      const fideId = normalizeDid(match[0]);
-      const kind = defaultKind ?? knownFideKind(fideId);
-      if (!kind) continue;
-      rememberFideKind(fideId, kind);
-      const key = `${kind}:${fideId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      entities.push({
-        fideId,
-        name: shortLabel(fideId),
-        kind,
-        source: viewKey,
-      });
+    const entityKey = `${kind}:${fideId}`;
+    if (seen.has(entityKey)) {
+      continue;
     }
+    seen.add(entityKey);
+    entities.push({ fideId, name, kind, source: viewKey });
   }
 
   return entities;
@@ -169,90 +137,6 @@ function shortLabel(fideId: string): string {
   return hex ? hex.slice(0, 10) : fideId.slice(0, 16);
 }
 
-function extractText(output: unknown): string {
-  if (!output || typeof output !== "object") {
-    return String(output ?? "");
-  }
-  const content = (output as { content?: unknown }).content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        part &&
-        typeof part === "object" &&
-        (part as { type?: string }).type === "text" &&
-        typeof (part as { text?: string }).text === "string"
-          ? (part as { text: string }).text
-          : ""
-      )
-      .join("\n");
-  }
-  try {
-    return JSON.stringify(output);
-  } catch {
-    return "";
-  }
-}
-
-function tryParseJsonEntities(
-  text: string,
-  defaultKind: PeekEntityKind | null,
-  entities: AllowlistEntity[],
-  seen: Set<string>
-) {
-  const start = text.indexOf("{");
-  const startArr = text.indexOf("[");
-  const idx =
-    start === -1 ? startArr : startArr === -1 ? start : Math.min(start, startArr);
-  if (idx < 0) return;
-  try {
-    const parsed = JSON.parse(text.slice(idx));
-    const rows = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed?.rows)
-        ? parsed.rows
-        : Array.isArray(parsed?.result)
-          ? parsed.result
-          : [];
-    for (const row of rows) {
-      if (!row || typeof row !== "object") continue;
-      const r = row as Record<string, unknown>;
-      const fideRaw =
-        (typeof r.fide_id === "string" && r.fide_id) ||
-        (typeof r.fideId === "string" && r.fideId) ||
-        "";
-      if (!fideIdHex(fideRaw)) continue;
-      const fideId = normalizeDid(fideRaw);
-      const name =
-        (typeof r.place === "string" && r.place) ||
-        (typeof r.place_name === "string" && r.place_name) ||
-        (typeof r.hotel === "string" && r.hotel) ||
-        (typeof r.hotel_name === "string" && r.hotel_name) ||
-        (typeof r.activity === "string" && r.activity) ||
-        (typeof r.attraction === "string" && r.attraction) ||
-        (typeof r.name === "string" && r.name) ||
-        "";
-      if (!name) continue;
-      const kind: PeekEntityKind =
-        defaultKind ??
-        (typeof r.hotel === "string" || typeof r.hotel_name === "string"
-          ? "hotel"
-          : typeof r.activity === "string"
-            ? "activity"
-            : typeof r.attraction === "string"
-              ? "attraction"
-              : "destination");
-      const key = `${kind}:${fideId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      entities.push({ fideId, name, kind });
-    }
-  } catch {
-    // ignore non-JSON
-  }
-}
-
-/** Resolve only by Fide id — never by display name. */
-/** Kind must be known from the graph (kind Statement); the type code cannot route. */
 function kindMatchesFideId(kind: PeekEntityKind, id: string): boolean {
   return knownFideKind(id) === kind;
 }
@@ -284,8 +168,7 @@ function findById(
   const normalized = normalizeDid(id);
   return (
     entities.find(
-      (e) =>
-        e.fideId === normalized && (kind == null || e.kind === kind)
+      (e) => e.fideId === normalized && (kind == null || e.kind === kind)
     ) ?? null
   );
 }
@@ -306,7 +189,9 @@ function resolveById(
   if (existCheck && !existCheck(accepted.fideId, kind)) {
     return null;
   }
-  const harvested = findById(entities, accepted.fideId) ?? findById(entities, accepted.fideId, kind);
+  const harvested =
+    findById(entities, accepted.fideId) ??
+    findById(entities, accepted.fideId, kind);
   return {
     fideId: accepted.fideId,
     name: harvested?.name?.trim() || accepted.name,

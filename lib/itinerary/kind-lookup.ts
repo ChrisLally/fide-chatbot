@@ -1,20 +1,22 @@
 import "server-only";
 
 import { createFideMcpClient } from "@/lib/fide/mcp-client";
-import {
-  fideIdsIn,
-  rememberFideKind,
-  uncachedFideIds,
-} from "./kind-cache";
+import { fideIdsIn, rememberFideKind, uncachedFideIds } from "./kind-cache";
 
 export { fideIdsIn };
+
+import { rowsFromToolResult } from "@/lib/fide/tool-rows";
 import type { PeekEntityKind } from "./schema";
-import { extractMcpJson, rowsFromRunView } from "./wm-place-policy";
 
 const WORLD_MODEL =
   process.env.FIDE_WORLD_MODEL_KEY?.trim() || "catalina-world-model";
 const KIND_VIEW = "inventory/kind-of";
-const KINDS = new Set<string>(["hotel", "activity", "attraction", "destination"]);
+const KINDS = new Set<string>([
+  "hotel",
+  "activity",
+  "attraction",
+  "destination",
+]);
 
 type RunViewTool = {
   execute?: (input: unknown, options?: unknown) => Promise<unknown>;
@@ -52,7 +54,11 @@ export async function ensureFideKinds(ids: readonly string[]): Promise<void> {
       { toolCallId: "kind-of", messages: [] }
     );
 
-    for (const row of rowsFromRunView(extractMcpJson(raw))) {
+    const rows = rowsFromToolResult(raw);
+    if (!rows) {
+      throw new Error(`kind-of returned no rows for ${missing.join(",")}`);
+    }
+    for (const row of rows) {
       const fideId = typeof row.fide_id === "string" ? row.fide_id : null;
       const kind = typeof row.kind === "string" ? row.kind : null;
       if (fideId && kind && KINDS.has(kind)) {

@@ -6,22 +6,15 @@ import {
   harvestEntitiesFromRunView,
   normalizeEntityName,
 } from "./entity-binder.ts";
-import {
-  parseClientItinerary,
-  type ClientItinerary,
-} from "./schema.ts";
 import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+import { type ClientItinerary, parseClientItinerary } from "./schema.ts";
 
 registerAllFixtureKinds();
 
-const ADELAIDE =
-  "did:fide:0x4020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const MELBOURNE =
-  "did:fide:0x4020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-const HOTEL =
-  "did:fide:0x3120cccccccccccccccccccccccccccccccccccc";
-const ACTIVITY =
-  "did:fide:0x3120dddddddddddddddddddddddddddddddddddd";
+const ADELAIDE = "did:fide:0x4020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const MELBOURNE = "did:fide:0x4020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const HOTEL = "did:fide:0x3120cccccccccccccccccccccccccccccccccccc";
+const ACTIVITY = "did:fide:0x3120dddddddddddddddddddddddddddddddddddd";
 
 describe("normalizeEntityName", () => {
   it("collapses punctuation and case", () => {
@@ -30,16 +23,23 @@ describe("normalizeEntityName", () => {
   });
 });
 
-describe("harvestEntitiesFromRunView", () => {
-  it("harvests markdown place sections with Fide ID", () => {
-    const text = `### Adelaide
-**Fide ID:** ${ADELAIDE}
-**Region:** SA
+/** A run_view tool result as the Fide MCP server returns it: markdown text plus structured rows. */
+function viewResult(rows: Record<string, unknown>[]) {
+  return {
+    content: [{ type: "text", text: "rendered markdown" }],
+    structuredContent: { result: { rows, rowCount: rows.length } },
+  };
+}
 
-### Melbourne
-**Fide ID:** ${MELBOURNE}
-`;
-    const entities = harvestEntitiesFromRunView("inventory/places", text);
+describe("harvestEntitiesFromRunView", () => {
+  it("harvests place rows by place name and Fide id", () => {
+    const entities = harvestEntitiesFromRunView(
+      "inventory/places",
+      viewResult([
+        { fide_id: ADELAIDE, place_name: "Adelaide" },
+        { fide_id: MELBOURNE, place_name: "Melbourne" },
+      ])
+    );
     assert.equal(entities.length, 2);
     assert.equal(entities[0].name, "Adelaide");
     assert.equal(entities[0].fideId, ADELAIDE);
@@ -47,17 +47,34 @@ describe("harvestEntitiesFromRunView", () => {
     assert.equal(entities[1].name, "Melbourne");
   });
 
-  it("harvests hotel sections", () => {
-    const text = `### ${HOTEL}
-**Hotel:** Mayfair Hotel Adelaide
-**City:** Adelaide
-`;
-    const entities = harvestEntitiesFromRunView("inventory/hotels-by-city", text);
-    assert.ok(entities.some((e) => e.name === "Mayfair Hotel Adelaide"));
-    assert.equal(
-      entities.find((e) => e.name === "Mayfair Hotel Adelaide")?.kind,
-      "hotel"
+  it("harvests hotel rows", () => {
+    const entities = harvestEntitiesFromRunView(
+      "inventory/hotels-by-city",
+      viewResult([{ fide_id: HOTEL, hotel_name: "Mayfair Hotel Adelaide" }])
     );
+    assert.equal(entities.length, 1);
+    assert.equal(entities[0].name, "Mayfair Hotel Adelaide");
+    assert.equal(entities[0].kind, "hotel");
+  });
+
+  it("harvests nothing from rendered text without structured rows", () => {
+    const text = `### Adelaide
+**Fide ID:** ${ADELAIDE}
+`;
+    assert.deepEqual(harvestEntitiesFromRunView("inventory/places", text), []);
+  });
+
+  it("does not treat restaurants as hotels (kind comes from the kind registry)", () => {
+    const entities = harvestEntitiesFromRunView(
+      "inventory/restaurants-by-city",
+      viewResult([
+        {
+          fide_id: "did:fide:0x3120ffffffffffffffffffffffffffffffffffffff",
+          restaurant: "Some Restaurant",
+        },
+      ])
+    );
+    assert.deepEqual(entities, []);
   });
 });
 
@@ -165,7 +182,9 @@ describe("bindItineraryToAllowlist", () => {
       title: "Name only",
       summary: "",
       durationDays: 1,
-      stops: [{ placeId: "pending:place:Adelaide", placeName: "Adelaide", nights: 1 }],
+      stops: [
+        { placeId: "pending:place:Adelaide", placeName: "Adelaide", nights: 1 },
+      ],
       days: [],
     };
 
@@ -183,11 +202,11 @@ describe("createTurnEntityBinder + parse allowUnbound", () => {
     const binder = createTurnEntityBinder();
     binder.harvestRunView(
       "inventory/places",
-      `### Adelaide\n**Fide ID:** ${ADELAIDE}\n`
+      viewResult([{ fide_id: ADELAIDE, place_name: "Adelaide" }])
     );
     binder.harvestRunView(
       "inventory/activities-all",
-      `### Central Market Tour\n**Fide ID:** ${ACTIVITY}\n`
+      viewResult([{ fide_id: ACTIVITY, activity: "Central Market Tour" }])
     );
 
     const raw = JSON.stringify({

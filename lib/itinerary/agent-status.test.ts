@@ -20,7 +20,6 @@ const policies: PlacePolicyMap = new Map([
       stayRecommendedNights: 3,
       stayMaxNights: 5,
       incompatibleOvernightFideIds: [],
-      incompatibleOvernightIris: [],
       overnightRequiresBrief: false,
     },
   ],

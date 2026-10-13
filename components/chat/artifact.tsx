@@ -31,10 +31,8 @@ import {
   type TravelContextItem,
 } from "@/lib/fide/travel-context";
 import {
-  coerceGraphEntityId,
   fideIdHex,
   subjectFingerprintFromFideId,
-  type PeekEntityKind,
 } from "@/lib/itinerary/schema";
 import { EntityDetail } from "@/components/chat/travel-cards/entity-detail";
 import { FideIdChip } from "@/components/chat/fide-id-chip";
@@ -107,24 +105,21 @@ const contextListQueries = {
 } as const satisfies Record<ContextCategory, string>;
 
 const contextDetailQueries = {
-  Hotels: { paramName: "fideId", legacyIriParam: "hotel_iri", query: "hotelDetail" },
-  Restaurants: { paramName: "fideId", legacyIriParam: "restaurant_iri", query: "restaurantDetail" },
+  Hotels: { paramName: "fideId", query: "hotelDetail" },
+  Restaurants: { paramName: "fideId", query: "restaurantDetail" },
   Activities: {
     paramName: "fideId",
-    legacyIriParam: "activity_iri",
     query: "activityDetail",
   },
   Attractions: {
     paramName: "fideId",
-    legacyIriParam: "attraction_iri",
     query: "attractionDetail",
   },
-  Events: { paramName: "fideId", legacyIriParam: "event_iri", query: "eventDetail" },
+  Events: { paramName: "fideId", query: "eventDetail" },
   Itineraries: { paramName: "itinerary_iri", query: "itineraryDetail" },
   Collections: { paramName: "collection_iri", query: "collectionDetail" },
   Destinations: {
     paramName: "fideId",
-    legacyIriParam: "place_iri",
     query: "destinationDetail",
   },
   Transportation: {
@@ -133,22 +128,8 @@ const contextDetailQueries = {
   },
 } as const satisfies Record<
   ContextCategory,
-  { paramName: string; query: string; legacyIriParam?: string }
+  { paramName: string; query: string }
 >;
-
-function coerceContextDetailId(
-  category: ContextCategory,
-  id: string
-): string {
-  const kindByCategory: Partial<Record<ContextCategory, PeekEntityKind>> = {
-    Destinations: "destination",
-    Hotels: "hotel",
-    Activities: "activity",
-    Attractions: "attraction",
-  };
-  const kind = kindByCategory[category];
-  return kind ? coerceGraphEntityId(id, kind) : id;
-}
 
 function PureArtifact({
   addToolApprovalResponse: _addToolApprovalResponse,
@@ -278,28 +259,18 @@ function PureArtifact({
         ? contextDetailQueries[activeContextCategory]
         : null;
       const hex = fideIdHex(itemId);
+      if (detail?.paramName === "fideId" && !hex) {
+        throw new Error(`Not a full Fide id: ${itemId}`);
+      }
       const fingerprint = hex ? subjectFingerprintFromFideId(itemId) : null;
-      const legacyKey =
-        (detail as { legacyIriParam?: string } | null)?.legacyIriParam ??
-        "place_iri";
       const params =
         detail?.paramName === "fideId"
-          ? hex
-            ? {
-                fideId: itemId.startsWith("did:fide:")
-                  ? itemId
-                  : `did:fide:${hex}`,
-                subjectFingerprint: fingerprint ?? "",
-                [legacyKey]: "",
-              }
-            : {
-                fideId: "",
-                subjectFingerprint: "",
-                [legacyKey]: coerceContextDetailId(
-                  activeContextCategory!,
-                  itemId
-                ),
-              }
+          ? {
+              fideId: itemId.startsWith("did:fide:")
+                ? itemId
+                : `did:fide:${hex}`,
+              subjectFingerprint: fingerprint ?? "",
+            }
           : { [paramName]: itemId };
 
       const response = await fetch(
@@ -750,7 +721,7 @@ function PureArtifact({
           new Set(
             contextItems
               .map((item) =>
-                readString(item.raw ?? {}, ["from_region_name", "from_region"])
+                readString(item.raw ?? {}, ["from_region_name"])
               )
               .filter(Boolean)
           )
@@ -768,12 +739,11 @@ function PureArtifact({
                 return (
                   readString(item.raw ?? {}, [
                     "from_region_name",
-                    "from_region",
                   ]) === transportFrom
                 );
               })
               .map((item) =>
-                readString(item.raw ?? {}, ["to_region_name", "to_region"])
+                readString(item.raw ?? {}, ["to_region_name"])
               )
               .filter(Boolean)
           )
@@ -786,7 +756,6 @@ function PureArtifact({
           item.filter,
           readString(item.raw ?? {}, [
             "region_name",
-            "region",
             "area_label",
             "area",
           ]),
@@ -800,11 +769,9 @@ function PureArtifact({
         if (contextCategory === "Transportation") {
           const from = readString(item.raw ?? {}, [
             "from_region_name",
-            "from_region",
           ]);
           const to = readString(item.raw ?? {}, [
             "to_region_name",
-            "to_region",
           ]);
           if (transportFrom !== "All" && from !== transportFrom) {
             return false;

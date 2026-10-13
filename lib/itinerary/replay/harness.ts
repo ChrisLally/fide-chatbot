@@ -74,7 +74,7 @@ function runBrief(brief: ReplayBrief): BriefMetrics {
   let doc = ensureArtifactIds(created.itinerary);
 
   // Simulate Approve Stops
-  doc = approveCurrentStage(doc, { by: "human" });
+  doc = approveCurrentStage(doc);
 
   const hotelPatches = doc.stops.map((stop, i) => ({
     op: "setStopHotel" as const,
@@ -99,7 +99,7 @@ function runBrief(brief: ReplayBrief): BriefMetrics {
 
   // Ensure days stage
   if (doc.workflow?.stage === "stays") {
-    doc = approveCurrentStage(doc, { by: "human" });
+    doc = approveCurrentStage(doc);
   }
 
   if (brief.activityId && doc.days[0]?.dayId) {

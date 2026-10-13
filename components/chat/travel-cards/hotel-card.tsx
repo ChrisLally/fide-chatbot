@@ -1,5 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { parseRooms, splitList } from "@/lib/fide/hotel-detail";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
 import { useContextNav } from "@/hooks/use-context-nav";
 import {
   type TravelContextItem,
@@ -14,13 +22,6 @@ import {
   toneForPriceTier,
   toneForRating,
 } from "./shared";
-
-function splitList(value: string, separator: string): string[] {
-  return value
-    .split(separator)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
 
 function ListBlock({ items, title }: { items: string[]; title: string }) {
   return (
@@ -45,10 +46,11 @@ export function HotelCard({
   showOpenAction?: boolean;
 }) {
   const { openTravelContext } = useContextNav();
+  const [photoIndex, setPhotoIndex] = useState<number | null>(null);
   const raw = item.raw;
 
   const priceTier = readString(raw, ["price_tier", "price"]);
-  const region = readString(raw, ["region_name", "region", "area"]);
+  const region = readString(raw, ["region_name", "area"]);
   const regionOpenId = readPlaceOpenId(raw, "region");
   const internalRating = readString(raw, ["internal_rating"]);
   const publicRating = readString(raw, ["public_rating", "rating"]);
@@ -69,10 +71,7 @@ export function HotelCard({
   const area = readString(raw, ["area_label"]);
   const starRating = readString(raw, ["star_rating"]);
   const safariTags = splitList(readString(raw, ["safari_tags"]), " | ");
-  const rooms = splitList(readString(raw, ["rooms"]), "\n").map((line) => {
-    const [name, ...rest] = line.split(" :: ");
-    return { name: name.trim(), description: rest.join(" :: ").trim() };
-  });
+  const rooms = parseRooms(readString(raw, ["rooms"]));
   const reviews = readString(raw, ["guest_reviews"])
     .split("\n")
     .map((review) => review.trim())
@@ -224,17 +223,66 @@ export function HotelCard({
             Photos ({images.length})
           </div>
           <div className="grid grid-cols-3 gap-1.5">
-            {images.slice(0, 9).map((src) => (
-              // biome-ignore lint/performance/noImgElement: external CDN thumbnails
-              <img
-                alt={item.name}
-                className="aspect-[4/3] w-full rounded-md object-cover"
+            {images.slice(0, 9).map((src, index) => (
+              <button
+                className="overflow-hidden rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 key={src}
-                loading="lazy"
-                src={src}
-              />
+                onClick={() => setPhotoIndex(index)}
+                type="button"
+              >
+                {/* biome-ignore lint/performance/noImgElement: external CDN thumbnails */}
+                <img
+                  alt={item.name}
+                  className="aspect-[4/3] w-full object-cover transition-opacity hover:opacity-90"
+                  loading="lazy"
+                  src={src}
+                />
+              </button>
             ))}
           </div>
+          <Dialog
+            onOpenChange={(open) => {
+              if (!open) setPhotoIndex(null);
+            }}
+            open={photoIndex !== null}
+          >
+            <DialogContent className="gap-3 p-4 sm:max-w-4xl">
+              <DialogTitle className="text-sm font-medium">
+                {item.name}
+                {photoIndex !== null ? ` · ${photoIndex + 1} of ${images.length}` : ""}
+              </DialogTitle>
+              {photoIndex !== null ? (
+                <>
+                  {/* biome-ignore lint/performance/noImgElement: external CDN photo */}
+                  <img
+                    alt={item.name}
+                    className="max-h-[70vh] w-full rounded-md object-contain"
+                    src={images[photoIndex]}
+                  />
+                  <div className="flex items-center justify-between">
+                    <button
+                      className="rounded-md border border-border px-3 py-1 text-xs disabled:opacity-40"
+                      disabled={photoIndex === 0}
+                      onClick={() => setPhotoIndex((i) => (i === null ? null : Math.max(0, i - 1)))}
+                      type="button"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      className="rounded-md border border-border px-3 py-1 text-xs disabled:opacity-40"
+                      disabled={photoIndex === images.length - 1}
+                      onClick={() =>
+                        setPhotoIndex((i) => (i === null ? null : Math.min(images.length - 1, i + 1)))
+                      }
+                      type="button"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </DialogContent>
+          </Dialog>
         </div>
       ) : null}
 

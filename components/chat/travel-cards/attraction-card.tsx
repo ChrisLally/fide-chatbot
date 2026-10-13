@@ -20,7 +20,7 @@ export function AttractionCard({
   const raw = item.raw;
 
   const rank = readString(raw, ["guide_rank", "position", "rank"]);
-  const region = readString(raw, ["region_name", "region"]);
+  const region = readString(raw, ["region_name"]);
   const source = readString(raw, ["source_guide"]);
   const regionOpenId = readPlaceOpenId(raw, "region");
 

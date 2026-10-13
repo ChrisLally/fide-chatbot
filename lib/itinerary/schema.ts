@@ -371,7 +371,7 @@ export const itineraryStageSchema = z.enum([
 
 const approvalProvenanceSchema = z.object({
   at: z.string().min(1),
-  by: z.enum(["human", "auto"]),
+  by: z.literal("human"),
 });
 
 export const itineraryWorkflowSchema = z.object({

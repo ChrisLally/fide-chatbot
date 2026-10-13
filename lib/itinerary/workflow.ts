@@ -8,7 +8,7 @@ export type ItineraryStage = (typeof ITINERARY_STAGES)[number];
 
 export type ApprovalRecord = {
   at: string;
-  by: "human" | "auto";
+  by: "human";
 };
 
 export type ItineraryWorkflow = {
@@ -48,8 +48,7 @@ export function migrateApprovalValue(
     typeof value === "object" &&
     value !== null &&
     typeof (value as ApprovalRecord).at === "string" &&
-    ((value as ApprovalRecord).by === "human" ||
-      (value as ApprovalRecord).by === "auto")
+    (value as ApprovalRecord).by === "human"
   ) {
     return {
       at: (value as ApprovalRecord).at,

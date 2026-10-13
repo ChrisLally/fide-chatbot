@@ -6,36 +6,10 @@ import {
   isAgentBlockedView,
   isNonBindableInventoryView,
   normalizeViewKey,
+  validateAgentViewParams,
 } from "@/lib/fide/agent-views";
 import { enrichPayloadWithEntityComments } from "@/lib/fide/entity-comments-enrich";
 import { dedupePlaceDescriptionAdvisorNote } from "@/lib/fide/place-payload-dedupe";
-
-function extractToolText(result: unknown): string {
-  if (typeof result === "string") {
-    return result;
-  }
-  if (!result || typeof result !== "object") {
-    return String(result ?? "");
-  }
-  const content = (result as { content?: unknown }).content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        part &&
-        typeof part === "object" &&
-        (part as { type?: string }).type === "text" &&
-        typeof (part as { text?: string }).text === "string"
-          ? (part as { text: string }).text
-          : ""
-      )
-      .join("\n");
-  }
-  try {
-    return JSON.stringify(result);
-  } catch {
-    return "";
-  }
-}
 
 type ExecutableTool = {
   execute?: (input: unknown, options: unknown) => Promise<unknown>;
@@ -52,6 +26,16 @@ function viewKeyFromInput(input: unknown): string {
     }
   }
   return "";
+}
+
+function paramsFromInput(input: unknown): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  const params = (input as Record<string, unknown>).params;
+  return params && typeof params === "object"
+    ? (params as Record<string, unknown>)
+    : undefined;
 }
 
 function textToolResult(message: string): unknown {
@@ -117,6 +101,21 @@ export function wrapFideToolsWithBinder(
     } as ToolSet[string];
   }
 
+  const getView = tools.get_view as ExecutableTool | undefined;
+  if (getView?.execute) {
+    const originalGet = getView.execute.bind(getView);
+    next.get_view = {
+      ...getView,
+      execute: async (input: unknown, options: unknown) => {
+        const viewKey = viewKeyFromInput(input);
+        if (viewKey && isAgentBlockedView(viewKey)) {
+          return textToolResult(blockedViewError(viewKey));
+        }
+        return originalGet(input, options);
+      },
+    } as ToolSet[string];
+  }
+
   const runView = tools.run_view as ExecutableTool | undefined;
   if (runView?.execute) {
     const originalRun = runView.execute.bind(runView);
@@ -126,6 +125,10 @@ export function wrapFideToolsWithBinder(
         const viewKey = viewKeyFromInput(input);
         if (viewKey && isAgentBlockedView(viewKey)) {
           return textToolResult(blockedViewError(viewKey));
+        }
+        const paramError = validateAgentViewParams(paramsFromInput(input));
+        if (paramError) {
+          return textToolResult(paramError);
         }
 
         let result = await originalRun(input, options);
@@ -140,7 +143,7 @@ export function wrapFideToolsWithBinder(
         }
 
         if (viewKey && !isNonBindableInventoryView(viewKey)) {
-          binder.harvestRunView(viewKey, extractToolText(result));
+          binder.harvestRunView(viewKey, result);
         }
         return enrichPayloadWithEntityComments(result);
       },

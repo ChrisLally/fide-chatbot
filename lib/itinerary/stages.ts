@@ -43,16 +43,15 @@ export function bumpVersion(itinerary: ClientItinerary): ClientItinerary {
 
 export function approveCurrentStage(
   itinerary: ClientItinerary,
-  options?: { by?: "human" | "auto"; bump?: boolean }
+  options?: { bump?: boolean }
 ): ClientItinerary {
   const workflow = ensureWorkflow(itinerary);
   if (workflow.stage === "complete") {
     return withWorkflow(itinerary, workflow);
   }
   const now = new Date().toISOString();
-  const by = options?.by ?? "human";
   const stage = workflow.stage as "stops" | "stays" | "days";
-  const record: ApprovalRecord = { at: now, by };
+  const record: ApprovalRecord = { at: now, by: "human" };
   const next = withWorkflow(itinerary, {
     stage: nextStageAfter(workflow.stage),
     approved: { ...workflow.approved, [stage]: record },

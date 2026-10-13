@@ -88,68 +88,23 @@ export function readTags(row: Record<string, unknown>, keys: string[]) {
   return Array.from(tags).slice(0, 6);
 }
 
-const PLACE_IRI_PREFIX = "https://www.catalinaquest.ai/#place=";
-
-/** Build a place IRI from a region slug when only the slug is present. */
-export function placeIriFromSlug(slug: string): string {
-  const trimmed = slug.trim();
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed.includes("#place=") || trimmed.startsWith("http")) {
-    return trimmed;
-  }
-  return `${PLACE_IRI_PREFIX}${trimmed}`;
-}
-
 /**
- * Resolve a destination deep-link id for context navigation.
- * Prefer explicit IRIs; fall back to slug→IRI. Never use display names.
+ * Fide id for a place deep-link. Only fide ids: region/from/to slugs and IRIs are never built or read.
  */
 export function readPlaceOpenId(
   row: Record<string, unknown>,
   role: "region" | "from" | "to" | "place" = "region"
 ): string {
   if (role === "from") {
-    const iri = readString(row, [
-      "from_region_iri",
-      "from_place_iri",
-      "from_location_iri",
-    ]);
-    if (iri) {
-      return iri;
-    }
-    return placeIriFromSlug(readString(row, ["from_region"]));
+    return readString(row, ["from_place_fide_id"]);
   }
-
   if (role === "to") {
-    const iri = readString(row, [
-      "to_region_iri",
-      "to_place_iri",
-      "to_location_iri",
-    ]);
-    if (iri) {
-      return iri;
-    }
-    return placeIriFromSlug(readString(row, ["to_region"]));
+    return readString(row, ["to_place_fide_id"]);
   }
-
   if (role === "place") {
-    return readString(row, ["fide_id", "region_fide_id", "place_iri", "id", "key"]);
+    return readString(row, ["fide_id", "region_fide_id"]);
   }
-
-  const id = readString(row, [
-    "region_fide_id",
-    "fide_id",
-    "region_iri",
-    "place_iri",
-    "located_in",
-    "location_iri",
-  ]);
-  if (id) {
-    return id;
-  }
-  return placeIriFromSlug(readString(row, ["region"]));
+  return readString(row, ["region_fide_id"]);
 }
 
 export function normalizeHotelRow(
@@ -163,14 +118,13 @@ export function normalizeHotelRow(
   );
   const id = readString(
     row,
-    ["fide_id", "hotel_iri", "id", "hotel_id", "slug", "key"],
+    ["fide_id", "id", "hotel_id", "key"],
     `hotel-${index}`
   );
   const filter = readString(
     row,
     [
       "region_name",
-      "region",
       "area_label",
       "area",
       "neighborhood",
@@ -183,7 +137,6 @@ export function normalizeHotelRow(
   const priceTier = readString(row, ["price_tier", "price", "budget"]);
   const area = readString(row, [
     "region_name",
-    "region",
     "area_label",
     "area",
     "neighborhood",
@@ -285,10 +238,10 @@ export function normalizeAttractionRow(
   );
   const id = readString(
     row,
-    ["member_fide_id", "fide_id", "attraction_iri", "id", "key"],
+    ["member_fide_id", "fide_id", "id", "key"],
     `attraction-${index}`
   );
-  const region = readString(row, ["region_name", "region"], "Attractions");
+  const region = readString(row, ["region_name"], "Attractions");
   const rank = readString(row, ["guide_rank", "position", "rank"]);
   const source = readString(row, ["source_guide"]);
 
@@ -324,10 +277,10 @@ export function normalizeActivityRow(
     row,
     // Prefer member id for list uniqueness when several inventory rows share a
     // statement-anchored cluster fide_id (accepted sameAs).
-    ["member_fide_id", "fide_id", "activity_iri", "id", "key"],
+    ["member_fide_id", "fide_id", "id", "key"],
     `activity-${index}`
   );
-  const region = readString(row, ["region_name", "region"], "Activities");
+  const region = readString(row, ["region_name"], "Activities");
   const duration = readString(row, ["duration"]);
   const format = readString(row, ["format"]);
   const hasAffiliate = Boolean(readString(row, ["affiliate_links"]));
@@ -369,10 +322,10 @@ export function normalizeRestaurantRow(
   );
   const id = readString(
     row,
-    ["fide_id", "restaurant_iri", "venue_iri", "iri", "id", "key"],
+    ["fide_id", "id", "key"],
     `restaurant-${index}`
   );
-  const region = readString(row, ["region_name", "region"], "Restaurants");
+  const region = readString(row, ["region_name"], "Restaurants");
   const category = readString(row, ["product_category", "category"]);
 
   return {
@@ -403,10 +356,10 @@ export function normalizeEventRow(
   );
   const id = readString(
     row,
-    ["fide_id", "event_iri", "iri", "id", "key"],
+    ["fide_id", "id", "key"],
     `event-${index}`
   );
-  const region = readString(row, ["region_name", "region"], "Events");
+  const region = readString(row, ["region_name"], "Events");
   const dates = readString(row, ["dates", "duration"]);
 
   return {
@@ -437,7 +390,7 @@ export function normalizeDestinationRow(
   );
   const id = readString(
     row,
-    ["fide_id", "place_iri", "id", "key"],
+    ["fide_id", "id", "key"],
     `destination-${index}`
   );
   const priority = readString(row, ["city_priority", "priority"]);
@@ -510,8 +463,8 @@ export function normalizeTransportationRow(
     ["option_iri", "route_iri", "id", "key"],
     `transport-${index}`
   );
-  const from = readString(row, ["from_region_name", "from_region"]);
-  const to = readString(row, ["to_region_name", "to_region"]);
+  const from = readString(row, ["from_region_name"]);
+  const to = readString(row, ["to_region_name"]);
   const duration = readString(row, ["duration"]);
   const distanceKm = readString(row, ["distance_km"]);
   const modeTags = readTags(row, ["mode"]);

@@ -20,8 +20,8 @@ export function TransportCard({
 
   const route = readString(raw, ["route"]);
   const mode = readString(raw, ["option", "mode", "transport_mode"]);
-  const from = readString(raw, ["from_region_name", "from_region"]);
-  const to = readString(raw, ["to_region_name", "to_region"]);
+  const from = readString(raw, ["from_region_name"]);
+  const to = readString(raw, ["to_region_name"]);
   const fromOpenId = readPlaceOpenId(raw, "from");
   const toOpenId = readPlaceOpenId(raw, "to");
   const duration = readString(raw, ["duration"]);
