@@ -8,6 +8,7 @@ import {
   applyItineraryPatches,
   itineraryPatchSchema,
 } from "@/lib/itinerary/patch";
+import { ensureFideKinds, fideIdsIn } from "@/lib/itinerary/kind-lookup";
 import { loadPlacePoliciesFromWorldModel } from "@/lib/itinerary/wm-place-policy";
 import { parseClientItinerary, serializeClientItinerary } from "@/lib/itinerary/schema";
 import type { TurnEntityBinder } from "@/lib/itinerary/entity-binder";
@@ -55,6 +56,8 @@ export const patchItinerary = ({
         if (!parsed.ok) {
           return { error: `Cannot patch invalid itinerary JSON: ${parsed.error}` };
         }
+
+        await ensureFideKinds(fideIdsIn([patches, parsed.data]));
 
         const placeIds = [
           ...parsed.data.stops.map((stop) => stop.placeId),

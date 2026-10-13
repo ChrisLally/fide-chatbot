@@ -5,6 +5,9 @@ import {
   itineraryToPrintHtml,
 } from "./print-html.ts";
 import type { ClientItinerary } from "./schema.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const sample: ClientItinerary = {
   title: "Sydney & Lady Elliot",
@@ -17,7 +20,7 @@ const sample: ClientItinerary = {
       placeName: "Sydney",
       nights: 4,
       hotelName: "Park Hyatt Sydney",
-      hotelId: "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a",
+      hotelId: "did:fide:0x312099ee71c0bbe3b30b275b32bbf65c900ef17a",
     },
     {
       placeId: "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5",

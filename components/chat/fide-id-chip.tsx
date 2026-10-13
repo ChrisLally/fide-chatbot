@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { extractRows, readString } from "@/lib/fide/travel-context";
+import { ensureFideKindsViaApi } from "@/lib/itinerary/kind-client";
+import { knownFideKind } from "@/lib/itinerary/kind-cache";
 import {
   fideIdEntityType,
   fideIdEntityTypeLabel,
@@ -15,7 +17,6 @@ import {
   fideIdReferenceType,
   fideIdReferenceTypeLabel,
   isClusterFideId,
-  kindFromFideId,
   shortEntityId,
   subjectFingerprintFromFideId,
   type PeekEntityKind,
@@ -41,7 +42,8 @@ const DETAIL_QUERY: Record<
 };
 
 async function fetchMemberIri(id: string): Promise<string | null> {
-  const kind = kindFromFideId(id);
+  await ensureFideKindsViaApi([id]);
+  const kind = knownFideKind(id);
   if (!kind) {
     return null;
   }

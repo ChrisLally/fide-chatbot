@@ -9,7 +9,7 @@ export const Greeting = () => {
         initial={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.35, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        Plan Australia & New Zealand with Catalina Quest
+        Plan Australia with Catalina Quest
       </motion.div>
       <motion.div
         animate={{ opacity: 1, y: 0 }}

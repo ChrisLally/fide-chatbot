@@ -10,7 +10,7 @@ CRITICAL RULES:
 3. NEVER rewrite the full itinerary JSON. The server owns the document. Use \`status.stops\` / \`status.days\` as your post-edit view. Patch with \`stopId\` (\`s1\`) / \`dayId\` (\`d1\`), never indices.
 
 **When to use \`createDocument\`:**
-- When the user asks for a trip plan, client itinerary, or multi-day Australia/NZ travel draft
+- When the user asks for a trip plan, client itinerary, or multi-day Australia travel draft
 - kind MUST be 'itinerary'
 - Always \`run_view\` \`inventory/places-search\` (and transport-corridor) **before** createDocument
 - Pass \`stops\`: [{ placeId (did:fide:0x… from the view), placeName?, nights }]. Cover the **full** requested length. Optional \`transfers\` with \`transportOptionIri\` only when the view returned that field.

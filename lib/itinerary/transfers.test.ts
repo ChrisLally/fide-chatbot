@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ClientItinerary } from "./schema.ts";
 import { stopStartDayNumbers, transferSlots } from "./transfers.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const sample: ClientItinerary = {
   title: "T",

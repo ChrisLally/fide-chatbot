@@ -1,3 +1,4 @@
+import { rememberFideKind } from "../kind-cache";
 /**
  * ~30 realistic Catalina-shaped briefs for the replay harness.
  * Each brief is a structured spine the harness materializes + patches —
@@ -24,24 +25,34 @@ export type ReplayBrief = {
 
 function place(n: number): string {
   const hex = n.toString(16).padStart(40, "0");
-  return `did:fide:0x40${hex.slice(0, 38)}`;
+  const id = `did:fide:0x40${hex.slice(0, 38)}`;
+  rememberFideKind(id, "destination");
+  return id;
 }
 
 function hotel(n: number): string {
   const hex = n.toString(16).padStart(40, "0");
-  return `did:fide:0x11${hex.slice(0, 38)}`;
+  const id = `did:fide:0x31${hex.slice(0, 38)}`;
+  rememberFideKind(id, "hotel");
+  return id;
 }
 
 function activity(n: number): string {
   const hex = n.toString(16).padStart(40, "0");
-  return `did:fide:0x31${hex.slice(0, 38)}`;
+  const id = `did:fide:0x31${hex.slice(0, 38)}`;
+  rememberFideKind(id, "activity");
+  return id;
 }
 
 /** Real Catalina-ish place DIDs from alison golden where available. */
 const SYDNEY = "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069";
 const BLUE = "did:fide:0x40207505aad72bc6866680f82c90589bf4e7caeb";
 const LEI = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";
-const ADINA = "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a";
+const ADINA = "did:fide:0x312099ee71c0bbe3b30b275b32bbf65c900ef17a";
+rememberFideKind(SYDNEY, "destination");
+rememberFideKind(BLUE, "destination");
+rememberFideKind(LEI, "destination");
+rememberFideKind(ADINA, "hotel");
 
 export const REPLAY_BRIEFS: ReplayBrief[] = [
   {

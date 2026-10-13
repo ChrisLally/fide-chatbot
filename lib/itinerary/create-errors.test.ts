@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { materializeStops } from "./patch.ts";
 import { itineraryToolErrorFromUnknown, ItineraryToolError } from "./tool-error.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const sydney = "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069";
 

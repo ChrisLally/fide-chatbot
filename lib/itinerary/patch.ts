@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TurnEntityBinder } from "./entity-binder";
+import { knownFideKind } from "./kind-cache";
 import {
   allocateStopId,
   ensureArtifactIds,
@@ -204,11 +205,7 @@ function asDid(id: string): string {
 }
 
 function fideKindOk(id: string, kind: PeekEntityKind): boolean {
-  const type = fideIdEntityType(id);
-  if (kind === "hotel") return type === "11";
-  if (kind === "destination") return type === "40";
-  if (kind === "activity" || kind === "attraction") return type === "31";
-  return false;
+  return knownFideKind(id) === kind;
 }
 
 function labelFromBinder(
@@ -313,7 +310,7 @@ function kindFail(
   return failDiag(
     opIndex,
     "KIND_MISMATCH",
-    `${kind} id must be a typed Fide id (hotel=0x11, place=0x40, activity=0x31). Got type ${got} for ${id}.`
+    `${kind} id must be a Fide id with a known ${kind} kind. Got type ${got} for ${id}, with no kind Statement loaded.`
   );
 }
 

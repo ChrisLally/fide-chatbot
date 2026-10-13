@@ -10,10 +10,13 @@ import {
 import type { ClientItinerary } from "./schema.ts";
 import type { PlacePolicyMap } from "./place-policy.ts";
 import { ensureArtifactIds } from "./ids.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const sydney = "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069";
 const lei = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";
-const adina = "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a";
+const adina = "did:fide:0x312099ee71c0bbe3b30b275b32bbf65c900ef17a";
 const blue = "did:fide:0x40207505aad72bc6866680f82c90589bf4e7caeb";
 
 const stayPolicies: PlacePolicyMap = new Map([
@@ -104,9 +107,9 @@ describe("applyItineraryPatch", () => {
     assert.ok((result.itinerary.version ?? 0) > (sample.version ?? 1));
   });
 
-  it("sets a hotel from a typed 0x11 id even with an empty allowlist", () => {
+  it("sets a hotel from a kind-registered 0x31 id even with an empty allowlist", () => {
     const parkHyatt =
-      "did:fide:0x1120f8d7d887bf79cfbce86593bd0e76764fcaff";
+      "did:fide:0x3120f8d7d887bf79cfbce86593bd0e76764fcaff";
     const result = applyItineraryPatch(sample, {
       op: "setStopHotel",
       stopId: sample.stops[0].stopId!,
@@ -178,7 +181,7 @@ describe("applyItineraryPatch", () => {
 
   it("applies a hotel batch in one call so no stop is lost", () => {
     const hotelA = adina;
-    const hotelB = "did:fide:0x1120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const hotelB = "did:fide:0x3120777777777777777777777777777777777777";
     const result = applyItineraryPatches(sample, [
       { op: "setStopHotel", stopId: sample.stops[0].stopId!, hotelId: hotelA, hotelName: "Adina" },
       { op: "setStopHotel", stopId: sample.stops[1].stopId!, hotelId: hotelB, hotelName: "Island Resort" },

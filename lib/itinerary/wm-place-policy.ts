@@ -13,7 +13,7 @@ export { placePolicyFromViewRow, policyForStop } from "./place-policy";
 const WORLD_MODEL =
   process.env.FIDE_WORLD_MODEL_KEY?.trim() || "catalina-world-model";
 
-function rowsFromRunView(payload: unknown): Record<string, unknown>[] {
+export function rowsFromRunView(payload: unknown): Record<string, unknown>[] {
   if (!payload || typeof payload !== "object") {
     return [];
   }
@@ -48,7 +48,7 @@ function rowsFromRunView(payload: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function extractMcpJson(result: unknown): unknown {
+export function extractMcpJson(result: unknown): unknown {
   if (!result || typeof result !== "object") {
     return result;
   }

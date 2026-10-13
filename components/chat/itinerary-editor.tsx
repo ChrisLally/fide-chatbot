@@ -17,6 +17,8 @@ import {
 } from "@/lib/itinerary/schema";
 import { verifyItineraryStage } from "@/lib/itinerary/stage-verifier";
 import { applyItineraryPatch } from "@/lib/itinerary/patch";
+import { ensureFideKindsViaApi } from "@/lib/itinerary/kind-client";
+import { fideIdsIn } from "@/lib/itinerary/kind-cache";
 import type { PlacePolicy, PlacePolicyMap } from "@/lib/itinerary/place-policy";
 import {
   STAGE_HELP,
@@ -557,6 +559,10 @@ export function ItineraryEditor({
       });
     }
   };
+
+  useEffect(() => {
+    void ensureFideKindsViaApi(fideIdsIn([itinerary]));
+  }, [itinerary]);
 
   const handleReopen = (target: "stops" | "stays" | "days") => {
     const next = reopenStage(itinerary, target);

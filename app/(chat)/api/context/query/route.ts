@@ -5,6 +5,7 @@ import { createFideMcpClient } from "@/lib/fide/mcp-client";
 import { ChatbotError } from "@/lib/errors";
 
 const contextQueries = {
+  kindOf: process.env.FIDE_CONTEXT_QUERY_KIND_OF ?? "inventory/kind-of",
   hotels: process.env.FIDE_CONTEXT_QUERY_HOTELS ?? "inventory/hotels-all",
   hotelDetail: process.env.FIDE_CONTEXT_QUERY_HOTEL_DETAIL ?? "inventory/hotel",
   restaurants: process.env.FIDE_CONTEXT_QUERY_RESTAURANTS ?? "inventory/restaurants-all",

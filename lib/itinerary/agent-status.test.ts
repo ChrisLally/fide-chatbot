@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 import { buildItineraryToolStatus } from "./agent-status.ts";
 import type { PlacePolicyMap } from "./place-policy.ts";
 import type { ClientItinerary } from "./schema.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const sydney = "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069";
 const lei = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";

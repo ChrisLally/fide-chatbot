@@ -12,6 +12,9 @@ import { verifyItineraryStage } from "./stage-verifier.ts";
 import type { ClientItinerary } from "./schema.ts";
 import { upgradeToFideId } from "./schema.ts";
 import type { PlacePolicyMap } from "./place-policy.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const leiId = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";
 const cairnsId = upgradeToFideId(
@@ -100,7 +103,7 @@ describe("itinerary stages", () => {
       stops: [
         {
           ...sample.stops[0],
-          hotelId: "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a",
+          hotelId: "did:fide:0x312099ee71c0bbe3b30b275b32bbf65c900ef17a",
           hotelName: "Adina",
         },
         sample.stops[1],
@@ -143,7 +146,7 @@ describe("itinerary stages", () => {
       stops: [
         {
           ...sample.stops[0],
-          hotelId: "did:fide:0x112099ee71c0bbe3b30b275b32bbf65c900ef17a",
+          hotelId: "did:fide:0x312099ee71c0bbe3b30b275b32bbf65c900ef17a",
           hotelName: "Adina",
         },
         sample.stops[1],

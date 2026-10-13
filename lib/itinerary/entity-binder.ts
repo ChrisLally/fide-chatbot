@@ -1,7 +1,6 @@
+import { knownFideKind, rememberFideKind } from "./kind-cache";
 import {
-  fideIdEntityType,
   fideIdHex,
-  kindFromFideId,
   type ClientItinerary,
   type DayBlock,
   type PeekEntityKind,
@@ -128,10 +127,9 @@ export function harvestEntitiesFromRunView(
       continue;
     }
 
-    const kind =
-      defaultKind ??
-      kindFromFideId(fideId) ??
-      "activity";
+    const kind = defaultKind ?? knownFideKind(fideId);
+    if (!kind) continue;
+    rememberFideKind(fideId, kind);
 
     const key = `${kind}:${fideId}`;
     if (seen.has(key)) continue;
@@ -148,10 +146,9 @@ export function harvestEntitiesFromRunView(
   if (entities.length === 0) {
     for (const match of text.matchAll(FIDE_ID_RE)) {
       const fideId = normalizeDid(match[0]);
-      const kind =
-        defaultKind ??
-        kindFromFideId(fideId) ??
-        "destination";
+      const kind = defaultKind ?? knownFideKind(fideId);
+      if (!kind) continue;
+      rememberFideKind(fideId, kind);
       const key = `${kind}:${fideId}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -255,16 +252,9 @@ function tryParseJsonEntities(
 }
 
 /** Resolve only by Fide id — never by display name. */
+/** Kind must be known from the graph (kind Statement); the type code cannot route. */
 function kindMatchesFideId(kind: PeekEntityKind, id: string): boolean {
-  const entityType = fideIdEntityType(id);
-  if (!entityType) return false;
-  if (kind === "hotel") return entityType === "11";
-  if (kind === "destination") return entityType === "40";
-  // Activities and attractions are both Concept (31).
-  if (kind === "activity" || kind === "attraction") {
-    return entityType === "31";
-  }
-  return false;
+  return knownFideKind(id) === kind;
 }
 
 /**

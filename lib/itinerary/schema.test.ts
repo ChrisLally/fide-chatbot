@@ -7,6 +7,9 @@ import {
   upgradeToFideId,
 } from "./schema.ts";
 import { fideFingerprint, sha256Hex } from "./sha256.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 describe("sha256 / fingerprint", () => {
   it("matches Node crypto for Catalina Sydney IRI", async () => {
@@ -50,7 +53,7 @@ describe("fideIdHex / shortEntityId", () => {
     const { subjectFingerprintFromFideId } = await import("./schema.ts");
     assert.equal(
       subjectFingerprintFromFideId(
-        "did:fide:0x112012614b43c10e32222424c3994a5b059eee02"
+        "did:fide:0x312012614b43c10e32222424c3994a5b059eee02"
       ),
       "12614b43c10e32222424c3994a5b059eee02"
     );
@@ -62,8 +65,8 @@ describe("fideIdHex / shortEntityId", () => {
       fideIdReferenceType,
       fideIdEntityTypeLabel,
       fideIdReferenceTypeLabel,
-      kindFromFideId,
     } = await import("./schema.ts");
+    const { knownFideKind, rememberFideKind } = await import("./kind-cache.ts");
     const cluster =
       "did:fide:0x3100e2e1287f82d4e56b2ffffc549e4eac88d6e6";
     const member =
@@ -72,12 +75,18 @@ describe("fideIdHex / shortEntityId", () => {
     assert.equal(fideIdReferenceType(member), "20");
     assert.equal(isClusterFideId(cluster), true);
     assert.equal(isClusterFideId(member), false);
-    assert.equal(kindFromFideId(cluster), "activity");
+    rememberFideKind(cluster, "activity");
+    assert.equal(knownFideKind(cluster), "activity");
     assert.equal(fideIdEntityTypeLabel(cluster), "Concept");
     assert.equal(fideIdReferenceTypeLabel(cluster), "Statement");
     assert.equal(fideIdReferenceTypeLabel(member), "NetworkResource");
-    assert.equal(kindFromFideId("did:fide:0x1100aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "hotel");
-    assert.equal(kindFromFideId("did:fide:0x4000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), "destination");
+    const hotel = "did:fide:0x3120999999999999999999999999999999999999";
+    const destination = "did:fide:0x4020888888888888888888888888888888888888";
+    assert.equal(knownFideKind(hotel), null);
+    rememberFideKind(hotel, "hotel");
+    rememberFideKind(destination, "destination");
+    assert.equal(knownFideKind(hotel), "hotel");
+    assert.equal(knownFideKind(destination), "destination");
   });
 });
 
@@ -100,12 +109,12 @@ describe("upgradeToFideId", () => {
     assert.ok(shortEntityId(id).startsWith("0x4020"));
   });
 
-  it("upgrades hotel IRI to Organization code 11", () => {
+  it("upgrades hotel IRI to Concept code 31", () => {
     const id = upgradeToFideId(
       "https://www.catalinaquest.ai/#hotel=brisbane-hilton-brisbane",
       "hotel"
     );
-    assert.match(id, /^did:fide:0x1120/);
+    assert.match(id, /^did:fide:0x3120/);
   });
 
   it("leaves existing fide ids alone", () => {

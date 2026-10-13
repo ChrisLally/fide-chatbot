@@ -38,6 +38,19 @@ import {
 } from "@/lib/itinerary/schema";
 import { EntityDetail } from "@/components/chat/travel-cards/entity-detail";
 import { FideIdChip } from "@/components/chat/fide-id-chip";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn, fetcher } from "@/lib/utils";
 import { ArtifactActions } from "./artifact-actions";
@@ -189,7 +202,13 @@ function PureArtifact({
     artifact.isVisible ? "artifact" : "world-model"
   );
   const [contextSearch, setContextSearch] = useState("");
-  const [contextFilter, setContextFilter] = useState("All");
+  const [contextFilterSelection, setContextFilterSelection] = useState<string[]>([]);
+  const toggleContextFilter = (value: string) =>
+    setContextFilterSelection((current) =>
+      current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value]
+    );
   const [transportFrom, setTransportFrom] = useState("All");
   const [transportTo, setTransportTo] = useState("All");
 
@@ -615,7 +634,7 @@ function PureArtifact({
     },
     {
       label: "Destinations",
-      description: "AU & NZ places with stay nights, landscapes, and airports.",
+      description: "Australian places with stay nights and landscapes.",
     },
     {
       label: "Transportation",
@@ -762,7 +781,17 @@ function PureArtifact({
       : [];
   const visibleContextItems = contextCategory
     ? contextItems.filter((item) => {
-        const matchesSearch = `${item.name} ${item.subtitle} ${item.tags.join(" ")}`
+        // Location words (chip, city, area label, region) are searchable too.
+        const locationText = [
+          item.filter,
+          readString(item.raw ?? {}, [
+            "region_name",
+            "region",
+            "area_label",
+            "area",
+          ]),
+        ].join(" ");
+        const matchesSearch = `${item.name} ${item.subtitle} ${item.tags.join(" ")} ${locationText}`
           .toLowerCase()
           .includes(contextSearch.trim().toLowerCase());
         if (!matchesSearch) {
@@ -785,10 +814,10 @@ function PureArtifact({
           }
           return true;
         }
-        if (contextFilter === "All") {
+        if (contextFilterSelection.length === 0) {
           return true;
         }
-        if (item.filter === contextFilter) {
+        if (contextFilterSelection.includes(item.filter)) {
           return true;
         }
         // Destinations can have multiple landscapes; match any, not just primary.
@@ -798,7 +827,7 @@ function PureArtifact({
             return landscapes
               .split(",")
               .map((part) => part.trim())
-              .includes(contextFilter);
+              .some((part) => contextFilterSelection.includes(part));
           }
         }
         return false;
@@ -820,7 +849,7 @@ function PureArtifact({
                     } else {
                       clearContext();
                       setContextSearch("");
-                      setContextFilter("All");
+                      setContextFilterSelection([]);
                     }
                   }}
                   type="button"
@@ -920,22 +949,79 @@ function PureArtifact({
                       </label>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {contextFilters.map((filter) => (
-                        <button
-                          className={cn(
-                            "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                            contextFilter === filter
-                              ? "border-foreground/20 bg-foreground text-background"
-                              : "border-border/60 bg-card/40 text-muted-foreground hover:bg-card hover:text-foreground"
-                          )}
-                          key={filter}
-                          onClick={() => setContextFilter(filter)}
-                          type="button"
-                        >
-                          {filter}
-                        </button>
-                      ))}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              className="flex h-9 items-center gap-2 rounded-lg border border-border/60 bg-card/40 px-3 text-xs text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+                              type="button"
+                            >
+                              {contextFilterSelection.length === 0
+                                ? "All locations"
+                                : `${contextFilterSelection.length} selected`}
+                              <span aria-hidden="true">▾</span>
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent align="start" className="w-72 p-0">
+                            <Command>
+                              <CommandInput placeholder="Search locations..." />
+                              <CommandList>
+                                <CommandEmpty>No locations match.</CommandEmpty>
+                                <CommandGroup>
+                                  {contextFilters
+                                    .filter((location) => location !== "All")
+                                    .map((location) => {
+                                      const selected = contextFilterSelection.includes(location);
+                                      return (
+                                        <CommandItem
+                                          key={location}
+                                          onSelect={() => toggleContextFilter(location)}
+                                          value={location}
+                                        >
+                                          <span
+                                            className={cn(
+                                              "flex size-4 items-center justify-center rounded border text-[10px]",
+                                              selected
+                                                ? "border-foreground bg-foreground text-background"
+                                                : "border-border"
+                                            )}
+                                          >
+                                            {selected ? "✓" : ""}
+                                          </span>
+                                          {location}
+                                        </CommandItem>
+                                      );
+                                    })}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                        {contextFilterSelection.length > 0 ? (
+                          <button
+                            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                            onClick={() => setContextFilterSelection([])}
+                            type="button"
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                      {contextFilterSelection.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {contextFilterSelection.map((location) => (
+                            <button
+                              className="rounded-md border border-foreground/20 bg-foreground px-2 py-0.5 text-[11px] text-background"
+                              key={location}
+                              onClick={() => toggleContextFilter(location)}
+                              type="button"
+                            >
+                              {location} ×
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                   <div className="flex flex-col gap-2">
@@ -994,7 +1080,7 @@ function PureArtifact({
                     key={label}
                     onClick={() => {
                       openContext(label);
-                      setContextFilter("All");
+                      setContextFilterSelection([]);
                       setContextSearch("");
                       setTransportFrom("All");
                       setTransportTo("All");

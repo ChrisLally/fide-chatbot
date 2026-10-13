@@ -171,6 +171,7 @@ export function normalizeHotelRow(
     [
       "region_name",
       "region",
+      "area_label",
       "area",
       "neighborhood",
       "location",
@@ -183,6 +184,7 @@ export function normalizeHotelRow(
   const area = readString(row, [
     "region_name",
     "region",
+    "area_label",
     "area",
     "neighborhood",
     "location",
@@ -474,7 +476,7 @@ export function normalizeDestinationRow(
         priority && `Priority ${priority}`,
       ]
         .filter(Boolean)
-        .join(" · ") || "AU / NZ destination",
+        .join(" · ") || "Australia destination",
     // Prefer short marketing description — never dump full voice notes into Context.
     description: readString(
       row,

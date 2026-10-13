@@ -155,18 +155,6 @@ export function fideIdReferenceTypeLabel(id: string): string | null {
 }
 
 /**
- * Peek/kind hint from entity type — works for both member (`20`) and cluster (`00`).
- * Concept (`31`) defaults to activity; view harvest may refine to attraction.
- */
-export function kindFromFideId(id: string): PeekEntityKind | null {
-  const entityType = fideIdEntityType(id);
-  if (entityType === "11") return "hotel";
-  if (entityType === "40") return "destination";
-  if (entityType === "31") return "activity";
-  return null;
-}
-
-/**
  * Extract the 36-hex fingerprint from a Fide id (`did:fide:0xTTSS` + fingerprint).
  * For member ids this is the NetworkResource fingerprint; for cluster ids (`SS=00`)
  * it is the accepted sameAs anchor statement fingerprint.
@@ -196,10 +184,14 @@ export function shortEntityId(id: string, chars = 8): string {
   return hex.length <= chars ? hex : `${hex.slice(0, chars)}…`;
 }
 
-/** Entity-type hex codes used when minting Catalina member Fide ids. */
+/**
+ * Entity-type hex codes used when minting Catalina member Fide ids. These are
+ * base kinds from the vocabulary spec (hotel = Concept, activity = Concept,
+ * place = Place). Routing kind comes from the kind Statement, not this code.
+ */
 const FIDE_TYPE_CODE: Record<"place" | "hotel" | "activity" | "attraction", string> = {
   place: "40",
-  hotel: "11",
+  hotel: "31",
   activity: "31",
   attraction: "31",
 };

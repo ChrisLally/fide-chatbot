@@ -10,13 +10,16 @@ import {
   parseClientItinerary,
   type ClientItinerary,
 } from "./schema.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+
+registerAllFixtureKinds();
 
 const ADELAIDE =
   "did:fide:0x4020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const MELBOURNE =
   "did:fide:0x4020bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const HOTEL =
-  "did:fide:0x1120cccccccccccccccccccccccccccccccccccc";
+  "did:fide:0x3120cccccccccccccccccccccccccccccccccccc";
 const ACTIVITY =
   "did:fide:0x3120dddddddddddddddddddddddddddddddddddd";
 
