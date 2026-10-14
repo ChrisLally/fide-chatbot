@@ -38,6 +38,8 @@ import {
 } from "@/lib/itinerary/transfers";
 import type { ChatMessage } from "@/lib/types";
 import { DocumentSkeleton } from "@/components/chat/document-skeleton";
+import { GuestsPanel } from "@/components/chat/guests-panel";
+import { withGuestIds } from "@/lib/itinerary/ids";
 import {
   ItineraryEntityPeek,
   type PeekTarget,
@@ -689,6 +691,13 @@ export function ItineraryEditor({
                   {itinerary.summary}
                 </p>
               ) : null}
+              <GuestsPanel
+                editable={editable}
+                guests={itinerary.guests ?? []}
+                onChange={(guests) =>
+                  commit({ ...itinerary, guests: withGuestIds(guests) })
+                }
+              />
             </div>
 
             <div className="space-y-4">

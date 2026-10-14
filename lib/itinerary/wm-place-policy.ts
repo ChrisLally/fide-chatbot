@@ -33,7 +33,9 @@ export async function loadPlacePoliciesFromWorldModel(
 
   const client = await createFideMcpClient();
   if (!client) {
-    return out;
+    throw new Error(
+      "Fide MCP is not configured, so place rules (stay nights, incompatible overnights) cannot be checked. Set the FIDE_* values in chatbot/.env."
+    );
   }
 
   try {
@@ -44,7 +46,7 @@ export async function loadPlacePoliciesFromWorldModel(
         }
       | undefined;
     if (!runView?.execute) {
-      return out;
+      throw new Error("Fide MCP has no run_view tool, so place rules cannot be checked.");
     }
 
     await Promise.all(
@@ -68,7 +70,10 @@ export async function loadPlacePoliciesFromWorldModel(
             out.set(fideId, policy);
           }
         } catch (error) {
-          console.error("place policy lookup failed", fideId, error);
+          throw new Error(
+            `Place rules for ${fideId} could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error }
+          );
         }
       })
     );

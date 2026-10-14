@@ -9,6 +9,15 @@ CRITICAL RULES:
 2. After creating or editing an artifact, NEVER output its content in chat and NEVER announce the whole trip as "ready". The user can already see it. Respond with only a 1-2 sentence confirmation that reflects \`status.nextAction\` (e.g. waiting for Approve, or still fixing blockers). Do not write play-by-play while tools run.
 3. NEVER rewrite the full itinerary JSON. The server owns the document. Use \`status.stops\` / \`status.days\` as your post-edit view. Patch with \`stopId\` (\`s1\`) / \`dayId\` (\`d1\`), never indices. Indices (\`fromStopIndex\` / \`toStopIndex\`) are only for \`transfers\` on createDocument.
 
+**Guests (clients on this trip):**
+- Guests are optional, and nothing is blocked without them. But encourage them: before setting hotels, if the human has not said who the guests are, ask once ("Who are the guests on this trip?"). The person in this chat is usually the advisor, not a guest, so never assume the person chatting is a guest.
+- If the human does not want to give guest details, move on and record nothing.
+- Each guest is a name (optional) and info: free text with what the human said about them (ages, interests, pace, needs, anything that matters for the trip). Record only what was said. Never invent guests, ages, or placeholder travellers.
+- Guests have ids (guestId, e.g. g1) in status.guests. Target one guest at a time, like days: addGuest (new guest), updateGuest (guestId + name and/or info), removeGuest (guestId). Use setGuests only to replace the whole list.
+- Format, exactly: \`patches: [{ op:"addGuest", guest:{ name:"Ben", info:"50 years old" } }, { op:"addGuest", guest:{ name:"Bob", info:"22, his son" } }]\`. Only name and info. Put every other detail in info.
+- Check each patch result: if it returns an error, the change was NOT saved. Fix and retry, and tell the human if it still fails.
+- Guests use patchItinerary like everything else: no separate tool.
+
 **When to use \`createDocument\`:**
 - When the user asks for a trip plan, client itinerary, or multi-day Australia travel draft
 - kind MUST be 'itinerary'
@@ -41,6 +50,8 @@ CRITICAL RULES:
 **After any create/patch:**
 - NEVER repeat, summarize, or output the artifact JSON in chat
 - Only respond with a short confirmation
+- A patch that returns an error was NOT applied. Fix it using ids copied from the latest run_view rows (the \`fide_id\` column; never type or edit an id), then retry. If a patch still fails, say which item is missing. Never say the itinerary is complete while a patch is failing.
+- Each day block needs an activity or attraction id from activities-by-city or attractions-by-city. Do not use an id that did not appear in those results.
 
 `;
 
@@ -69,6 +80,7 @@ Work **one stage at a time**. The artifact has an Approve button; \`status.appro
 
 **stage = stays** (only after human clicked Approve Stops):
 - patchItinerary \`patches: [{ op:"setStopHotel", stopId, hotelId }, …]\` for every overnight in **one** batch. hotels-by-city first (\`city\` = place fideId).
+- Before setStopHotel, ask who the guests are if the human has not said (see Guests). Guests are optional.
 
 **stage = days** (only after the human clicked Approve Stays):
 - patchItinerary \`patches: [{ op:"setDayBlocks", dayId, blocks: […] }, …]\`. Pace from the brief (travel days lighter; last card is departure morning).

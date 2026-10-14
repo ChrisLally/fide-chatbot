@@ -112,10 +112,19 @@ export const createDocument = ({
       const parsed = parseClientItinerary(saved?.content ?? "");
       let status = undefined;
       if (parsed.ok) {
-        const placePolicies = await loadPlacePoliciesFromWorldModel(
-          parsed.data.stops.map((stop) => stop.placeId)
-        );
-        status = buildItineraryToolStatus(parsed.data, placePolicies);
+        try {
+          const placePolicies = await loadPlacePoliciesFromWorldModel(
+            parsed.data.stops.map((stop) => stop.placeId)
+          );
+          status = buildItineraryToolStatus(parsed.data, placePolicies);
+        } catch (error) {
+          // The itinerary is already saved. Say so, so the agent does not create another one.
+          return itineraryToolErrorFromUnknown(
+            new Error(
+              `Itinerary ${id} was saved, but its status could not be checked: ${error instanceof Error ? error.message : String(error)}. Do not create another itinerary.`
+            )
+          );
+        }
       }
 
       return {

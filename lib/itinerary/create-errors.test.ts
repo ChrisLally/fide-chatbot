@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { materializeStops } from "./patch.ts";
-import { itineraryToolErrorFromUnknown, ItineraryToolError } from "./tool-error.ts";
 import { registerAllFixtureKinds } from "./kind-fixtures.ts";
+import { materializeStops } from "./patch.ts";
+import {
+  ItineraryToolError,
+  itineraryToolErrorFromUnknown,
+} from "./tool-error.ts";
 
 registerAllFixtureKinds();
 

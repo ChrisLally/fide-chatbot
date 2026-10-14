@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyItineraryPatch, fitStopsToTripLength, materializeStops } from "./patch.ts";
 import { ensureArtifactIds } from "./ids.ts";
-import { binderWith, blue, lei, sample, stayPolicies, sydney } from "./patch-fixtures.ts";
+import {
+  applyItineraryPatch,
+  fitStopsToTripLength,
+  materializeStops,
+} from "./patch.ts";
+import {
+  binderWith,
+  blue,
+  lei,
+  sample,
+  stayPolicies,
+  sydney,
+} from "./patch-fixtures";
 
 describe("materializeStops", () => {
   it("binds names and stubs days without hotels", () => {
@@ -26,7 +37,10 @@ describe("materializeStops", () => {
     assert.ok(result.itinerary.stops[0]?.stopId);
     assert.ok(result.itinerary.days[0]?.dayId);
     assert.equal(result.itinerary.days.length, 8);
-    assert.equal(result.itinerary.days.filter((d) => d.stopIndex === 0).length, 3);
+    assert.equal(
+      result.itinerary.days.filter((d) => d.stopIndex === 0).length,
+      3
+    );
     assert.equal(result.itinerary.days[3]?.stopIndex, 1);
     assert.match(String(result.itinerary.days.at(-1)?.title), /Depart/i);
     assert.equal(result.itinerary.durationDays, 8);
@@ -72,7 +86,10 @@ describe("materializeStops", () => {
     );
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0), 17);
+    assert.equal(
+      result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0),
+      17
+    );
     assert.equal(result.itinerary.stops.at(-1)?.nights, 5);
     assert.equal(result.itinerary.durationDays, 18);
     assert.equal(result.itinerary.days.length, 18);
@@ -118,8 +135,14 @@ describe("materializeStops", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.itinerary.stops.length, 5);
-    assert.equal(result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0), 17);
-    assert.deepEqual(result.itinerary.stops.map((stop) => stop.nights), [2, 3, 4, 4, 4]);
+    assert.equal(
+      result.itinerary.stops.reduce((sum, stop) => sum + stop.nights, 0),
+      17
+    );
+    assert.deepEqual(
+      result.itinerary.stops.map((stop) => stop.nights),
+      [2, 3, 4, 4, 4]
+    );
     assert.equal(result.itinerary.durationDays, 18);
   });
 
@@ -222,7 +245,10 @@ describe("fitStopsToTripLength stay bands", () => {
     );
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.stops.reduce((s, x) => s + x.nights, 0), 7);
+    assert.equal(
+      result.stops.reduce((s, x) => s + x.nights, 0),
+      7
+    );
     assert.equal(result.stops[0]?.nights, 3);
     assert.ok((result.stops[1]?.nights ?? 0) >= 3);
     assert.ok((result.stops[1]?.nights ?? 0) <= 5);

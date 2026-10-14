@@ -189,14 +189,19 @@ export function shortEntityId(id: string, chars = 8): string {
  * base kinds from the vocabulary spec (hotel = Concept, activity = Concept,
  * place = Place). Routing kind comes from the kind Statement, not this code.
  */
-const FIDE_TYPE_CODE: Record<"place" | "hotel" | "activity" | "attraction", string> = {
+const FIDE_TYPE_CODE: Record<
+  "place" | "hotel" | "activity" | "attraction",
+  string
+> = {
   place: "40",
   hotel: "31",
   activity: "31",
   attraction: "31",
 };
 
-function typeKeyFromKind(kind: PeekEntityKind | GraphKindKey): keyof typeof FIDE_TYPE_CODE {
+function typeKeyFromKind(
+  kind: PeekEntityKind | GraphKindKey
+): keyof typeof FIDE_TYPE_CODE {
   if (kind === "destination" || kind === "place") return "place";
   if (kind === "hotel") return "hotel";
   if (kind === "activity") return "activity";
@@ -297,7 +302,9 @@ export function graphStayBand(placeId: string | undefined): {
   return {};
 }
 
-export function graphStayMinNights(placeId: string | undefined): number | undefined {
+export function graphStayMinNights(
+  placeId: string | undefined
+): number | undefined {
   return graphStayBand(placeId).min;
 }
 
@@ -313,7 +320,10 @@ export const dayBlockSchema = z.object({
 
 export const clientItineraryStopSchema = z.object({
   /** Stable artifact id: s1, s2, … */
-  stopId: z.string().regex(/^s\d+$/).optional(),
+  stopId: z
+    .string()
+    .regex(/^s\d+$/)
+    .optional(),
   placeId: entityIdSchema,
   placeName: z.string().min(1),
   nights: z.number().int().min(1),
@@ -346,11 +356,17 @@ export const itineraryTransferSchema = z.object({
 
 export const clientItineraryDaySchema = z.object({
   /** Stable artifact id: d1, d2, … */
-  dayId: z.string().regex(/^d\d+$/).optional(),
+  dayId: z
+    .string()
+    .regex(/^d\d+$/)
+    .optional(),
   dayNumber: z.number().int().min(1),
   stopIndex: z.number().int().min(0),
   /** Prefer stopId; stopIndex kept for display / legacy. */
-  stopId: z.string().regex(/^s\d+$/).optional(),
+  stopId: z
+    .string()
+    .regex(/^s\d+$/)
+    .optional(),
   title: z.string().min(1),
   description: z.string().default(""),
   blocks: z.array(dayBlockSchema).optional(),
@@ -385,6 +401,28 @@ export const itineraryWorkflowSchema = z.object({
     .default({}),
 });
 
+/**
+ * One traveller: an optional name and free text about them (ages, interests, pace, needs, anything
+ * the human said). A guest needs a name or some text, so a blank traveller cannot be saved.
+ */
+export const guestSchema = z
+  .object({
+    /** Stable id (g1, g2, …) so the agent can update or remove one guest. Assigned by the server. */
+    guestId: z
+      .string()
+      .regex(/^g\d+$/)
+      .optional(),
+    name: z.string().trim().min(1).optional(),
+    info: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine((guest) => Boolean(guest.name || guest.info), {
+    message: "A guest needs a name or some info.",
+  });
+
+export type Guest = z.infer<typeof guestSchema>;
+
+
 export const clientItinerarySchema = z
   .object({
     title: z.string().min(1),
@@ -408,6 +446,8 @@ export const clientItinerarySchema = z
     /** Arrival / between-stop / departure transport cards. */
     transfers: z.array(itineraryTransferSchema).default([]),
     workflow: itineraryWorkflowSchema.optional(),
+    /** Guests on the trip (clients). Optional: the agent asks, nothing is blocked without them. */
+    guests: z.array(guestSchema).optional(),
     /** @deprecated Unused — brochure templates are reference-only; no seed path. */
     derivedFromTemplateId: z.string().optional(),
     /** Advisory night/transport rankings. Not a source of itinerary truth. */
@@ -658,7 +698,8 @@ export function normalizeClientItinerary(
     stops,
     days,
     transfers,
-    version: typeof data.version === "number" && data.version >= 1 ? data.version : 1,
+    version:
+      typeof data.version === "number" && data.version >= 1 ? data.version : 1,
     schemaVersion: 2,
     workflow: data.workflow ? migrateWorkflow(data.workflow) : data.workflow,
     derivedFromTemplateId: (data as ClientItinerary).derivedFromTemplateId,
@@ -682,6 +723,8 @@ const clientItineraryLooseSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
+  // Guests must be listed here, or z.object strips them when an itinerary is read.
+  guests: z.array(guestSchema).optional(),
   stops: z
     .array(
       z.object({
@@ -877,7 +920,8 @@ export function dayBlocksForDisplay(day: ClientItineraryDay): DayBlock[] {
     blocks.push({
       when: "flexible",
       entityId: id,
-      entityName: day.activityNames?.[index] || labelFromEntityId(id, "Activity"),
+      entityName:
+        day.activityNames?.[index] || labelFromEntityId(id, "Activity"),
       entityKind: kind,
     });
   }

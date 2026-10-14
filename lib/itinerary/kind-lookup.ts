@@ -35,14 +35,16 @@ export async function ensureFideKinds(ids: readonly string[]): Promise<void> {
 
   const client = await createFideMcpClient();
   if (!client) {
-    return;
+    throw new Error(
+      "Fide MCP is not configured, so entity kinds cannot be checked. Set the FIDE_* values in chatbot/.env."
+    );
   }
 
   try {
     const tools = await client.tools();
     const runView = tools.run_view as unknown as RunViewTool | undefined;
     if (!runView?.execute) {
-      return;
+      throw new Error("Fide MCP has no run_view tool, so entity kinds cannot be checked.");
     }
 
     const raw = await runView.execute(

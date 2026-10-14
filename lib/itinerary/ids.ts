@@ -2,12 +2,40 @@ import type {
   ClientItinerary,
   ClientItineraryDay,
   ClientItineraryStop,
+  Guest,
 } from "./schema";
 
 export const CURRENT_SCHEMA_VERSION = 2;
 
 const STOP_ID_RE = /^s(\d+)$/;
 const DAY_ID_RE = /^d(\d+)$/;
+const GUEST_ID_RE = /^g(\d+)$/;
+
+export function parseGuestIdNum(guestId: string): number | null {
+  const match = GUEST_ID_RE.exec(guestId.trim());
+  return match ? Number(match[1]) : null;
+}
+
+export function formatGuestId(n: number): string {
+  return `g${n}`;
+}
+
+/**
+ * Give every guest a stable id (g1, g2, …). Existing valid ids are kept; new ones never reuse a number.
+ */
+export function withGuestIds(guests: Guest[]): Guest[] {
+  let max = 0;
+  for (const guest of guests) {
+    const n = guest.guestId ? parseGuestIdNum(guest.guestId) : null;
+    if (n != null && n > max) max = n;
+  }
+  return guests.map((guest) => {
+    const n = guest.guestId ? parseGuestIdNum(guest.guestId) : null;
+    if (n != null) return guest;
+    max += 1;
+    return { ...guest, guestId: formatGuestId(max) };
+  });
+}
 
 export function parseStopIdNum(stopId: string): number | null {
   const match = STOP_ID_RE.exec(stopId.trim());
@@ -94,6 +122,7 @@ export function ensureArtifactIds(itinerary: ClientItinerary): ClientItinerary {
     ...itinerary,
     stops,
     days,
+    ...(itinerary.guests ? { guests: withGuestIds(itinerary.guests) } : {}),
     version: itinerary.version ?? 1,
     schemaVersion: itinerary.schemaVersion ?? CURRENT_SCHEMA_VERSION,
   };

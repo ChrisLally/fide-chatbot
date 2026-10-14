@@ -1,7 +1,8 @@
-import type { ClientItinerary } from "./schema";
+import { withGuestIds } from "./ids";
 import type { PlacePolicyMap } from "./place-policy";
-import { ensureWorkflow, STAGE_LABELS, type ItineraryStage } from "./stages";
+import type { ClientItinerary } from "./schema";
 import { verifyItineraryStage } from "./stage-verifier";
+import { ensureWorkflow, type ItineraryStage, STAGE_LABELS } from "./stages";
 
 /** Machine-readable fix hint for the agent. */
 export type ItineraryStatusFix = {
@@ -37,6 +38,8 @@ export type ItineraryToolStatus = {
     title: string;
     stale?: boolean;
   }>;
+  /** Guests by guestId. Target them with updateGuest / removeGuest. */
+  guests: Array<{ guestId?: string; name?: string; info?: string }>;
   /** What Taylor should do next given stage + approve gate. */
   nextAction: string;
 };
@@ -160,6 +163,11 @@ export function buildItineraryToolStatus(
       stopId: day.stopId,
       title: day.title,
       ...(day.stale ? { stale: true } : {}),
+    })),
+    guests: withGuestIds(itinerary.guests ?? []).map((guest) => ({
+      guestId: guest.guestId,
+      name: guest.name,
+      info: guest.info,
     })),
     nextAction: nextActionFor(stage, gate.ok, gate.errors),
   };

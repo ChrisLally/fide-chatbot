@@ -5,6 +5,7 @@ import {
   allocateStopId,
   ensureArtifactIds,
   nextStopIdCounter,
+  withGuestIds,
 } from "./ids";
 import {
   clientItinerarySchema,
@@ -16,6 +17,7 @@ import {
   type DayBlock,
   type ItineraryTransfer,
   type PeekEntityKind,
+  guestSchema,
 } from "./schema";
 import { verifyItineraryStage } from "./stage-verifier";
 import {
@@ -148,6 +150,40 @@ export const itineraryPatchSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("setTitle"),
     title: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal("setGuests"),
+    guests: z
+      .array(guestSchema)
+      .describe(
+        "Full guest list for the trip (replaces the list). Each guest: name (optional) and info (free text: what the human said about them, e.g. '30, relaxed, loves food')."
+      ),
+  }),
+  z.object({
+    op: z.literal("addGuest"),
+    guest: z
+      .object({
+        name: z.string().trim().min(1).optional(),
+        info: z.string().trim().min(1).optional(),
+      })
+      .strict()
+      .describe("New guest: name (optional) and/or info (free text). Gets the next guestId."),
+  }),
+  z.object({
+    op: z.literal("updateGuest"),
+    guestId: z.string().describe("Id of the guest to change, from status.guests (e.g. g1)."),
+    name: z
+      .string()
+      .optional()
+      .describe("New name. Send an empty string to clear it. Omit to keep."),
+    info: z
+      .string()
+      .optional()
+      .describe("New info text. Send an empty string to clear it. Omit to keep."),
+  }),
+  z.object({
+    op: z.literal("removeGuest"),
+    guestId: z.string().describe("Id of the guest to remove, from status.guests (e.g. g1)."),
   }),
   z.object({
     op: z.literal("setStartDate"),
@@ -591,6 +627,10 @@ function applyOneItineraryPatch(
   opIndex: number
 ): PatchResult {
   const itinerary = structuredClone(previous) as ClientItinerary;
+  if (itinerary.guests) {
+    // Guests saved before guest ids existed get one here, so they can be targeted.
+    itinerary.guests = withGuestIds(itinerary.guests);
+  }
   const workflow = ensureWorkflow(itinerary);
   itinerary.workflow = workflow;
   itinerary.days = syncDaysToNights(itinerary.stops, itinerary.days);
@@ -835,6 +875,57 @@ function applyOneItineraryPatch(
     case "setStartDate":
       itinerary.startDate = patch.startDate.trim() || undefined;
       return { ok: true, itinerary };
+    case "setGuests":
+      itinerary.guests = withGuestIds(patch.guests);
+      return { ok: true, itinerary };
+    case "addGuest": {
+      const guest = { name: patch.guest.name, info: patch.guest.info };
+      if (!guest.name && !guest.info) {
+        return failDiag(opIndex, "GUEST_EMPTY", "A guest needs a name or some info.");
+      }
+      itinerary.guests = withGuestIds([...(itinerary.guests ?? []), guest]);
+      return { ok: true, itinerary };
+    }
+    case "updateGuest": {
+      const guests = itinerary.guests ?? [];
+      const index = guests.findIndex((guest) => guest.guestId === patch.guestId);
+      if (index < 0) {
+        return failDiag(
+          opIndex,
+          "GUEST_NOT_FOUND",
+          `No guest with guestId ${patch.guestId}.`,
+          guests.flatMap((guest) => (guest.guestId ? [guest.guestId] : []))
+        );
+      }
+      const current = guests[index];
+      const next = {
+        ...current,
+        name: patch.name === undefined ? current.name : patch.name.trim() || undefined,
+        info: patch.info === undefined ? current.info : patch.info.trim() || undefined,
+      };
+      if (!next.name && !next.info) {
+        return failDiag(
+          opIndex,
+          "GUEST_EMPTY",
+          "That update would leave the guest blank. Use removeGuest to delete a guest."
+        );
+      }
+      itinerary.guests = guests.map((guest, i) => (i === index ? next : guest));
+      return { ok: true, itinerary };
+    }
+    case "removeGuest": {
+      const guests = itinerary.guests ?? [];
+      if (!guests.some((guest) => guest.guestId === patch.guestId)) {
+        return failDiag(
+          opIndex,
+          "GUEST_NOT_FOUND",
+          `No guest with guestId ${patch.guestId}.`,
+          guests.flatMap((guest) => (guest.guestId ? [guest.guestId] : []))
+        );
+      }
+      itinerary.guests = guests.filter((guest) => guest.guestId !== patch.guestId);
+      return { ok: true, itinerary };
+    }
     default: {
       const _never: never = patch;
       return failDiag(opIndex, "UNKNOWN_OP", `Unknown op: ${String(_never)}`);

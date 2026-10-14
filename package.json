@@ -3,7 +3,7 @@
   "version": "3.1.0",
   "private": true,
   "scripts": {
-    "dev": "PGLITE_DATA_DIR=.pglite-dev next dev --turbo",
+    "dev": "PGLITE_DATA_DIR=.pglite-test next dev --turbo",
     "build": "tsx lib/db/migrate && next build",
     "release": "bash scripts/release.sh",
     "start": "next start",

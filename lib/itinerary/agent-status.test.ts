@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildItineraryToolStatus } from "./agent-status.ts";
+import { registerAllFixtureKinds } from "./kind-fixtures.ts";
 import type { PlacePolicyMap } from "./place-policy.ts";
 import type { ClientItinerary } from "./schema.ts";
-import { registerAllFixtureKinds } from "./kind-fixtures.ts";
 
 registerAllFixtureKinds();
 
@@ -34,6 +34,7 @@ const base: ClientItinerary = {
     { placeId: lei, placeName: "Lady Elliot Island", nights: 4 },
   ],
   days: [],
+  guests: [{ info: "adult, relaxed pace" }],
   workflow: { stage: "stops", approved: {} },
 };
 
@@ -49,21 +50,24 @@ describe("buildItineraryToolStatus", () => {
   it("marks Approve not clickable when stay-min fails", () => {
     const short: ClientItinerary = {
       ...base,
-      stops: [
-        base.stops[0],
-        { ...base.stops[1], nights: 2 },
-      ],
+      stops: [base.stops[0], { ...base.stops[1], nights: 2 }],
     };
     const status = buildItineraryToolStatus(short, policies);
     assert.equal(status.approveButtonClickable, false);
-    assert.equal(status.errors.some((e) => /stay-min/i.test(e)), true);
+    assert.equal(
+      status.errors.some((e) => /stay-min/i.test(e)),
+      true
+    );
     assert.match(status.nextAction, /NOT clickable/i);
   });
 
   it("marks Approve Stays not clickable until hotels exist", () => {
     const stays: ClientItinerary = {
       ...base,
-      workflow: { stage: "stays", approved: { stops: { at: "x", by: "human" } } },
+      workflow: {
+        stage: "stays",
+        approved: { stops: { at: "x", by: "human" } },
+      },
     };
     const status = buildItineraryToolStatus(stays, policies);
     assert.equal(status.stage, "stays");

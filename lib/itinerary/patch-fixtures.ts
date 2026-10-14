@@ -1,11 +1,14 @@
 import { createTurnEntityBinder } from "./entity-binder";
-import type { PlacePolicyMap } from "./place-policy";
 import { ensureArtifactIds } from "./ids";
-import type { ClientItinerary } from "./schema";
 import { registerAllFixtureKinds } from "./kind-fixtures";
+import type { PlacePolicyMap } from "./place-policy";
+import type { ClientItinerary } from "./schema";
 
 // Shared fixtures for the itinerary patch tests (patch-ops and materialize-and-stays).
 registerAllFixtureKinds();
+
+/** Guest info that satisfies the stops gate. */
+export const TEST_GUESTS = [{ info: "adult, relaxed pace" }];
 
 export const sydney = "did:fide:0x4020434523b50f52aa55da3e9d53c0355d620069";
 export const lei = "did:fide:0x40203015b9c8855721dfb39bd6c6ed8bf8b147d5";
@@ -45,6 +48,7 @@ export const sample: ClientItinerary = ensureArtifactIds({
   durationDays: 7,
   version: 1,
   schemaVersion: 2,
+  guests: TEST_GUESTS,
   stops: [
     { placeId: sydney, placeName: "Sydney", nights: 3 },
     { placeId: lei, placeName: "Lady Elliot Island", nights: 4 },
@@ -72,7 +76,13 @@ export const sample: ClientItinerary = ensureArtifactIds({
   },
 });
 
-export function binderWith(...entities: Array<{ fideId: string; name: string; kind: "destination" | "hotel" | "activity" | "attraction" }>) {
+export function binderWith(
+  ...entities: Array<{
+    fideId: string;
+    name: string;
+    kind: "destination" | "hotel" | "activity" | "attraction";
+  }>
+) {
   const binder = createTurnEntityBinder();
   binder.addMany(entities);
   return binder;

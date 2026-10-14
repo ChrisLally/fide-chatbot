@@ -10,7 +10,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ActiveChatProvider } from "@/hooks/use-active-chat";
 import { guestRegex, isAuthRequired } from "@/lib/constants";
 import { getUserById } from "@/lib/db/queries";
-import { auth, signOut } from "../(auth)/auth";
+import { auth } from "../(auth)/auth";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -35,7 +35,8 @@ async function SidebarShell({ children }: { children: React.ReactNode }) {
   if (session?.user?.id) {
     const liveUser = await getUserById(session.user.id);
     if (!liveUser) {
-      await signOut({ redirect: false });
+      // Stale cookie: sign-out cannot write cookies during render. The guest route
+      // handler replaces the stale session with a fresh guest.
       if (isAuthRequired()) {
         redirect("/login");
       }
