@@ -35,10 +35,9 @@ async function SidebarShell({ children }: { children: React.ReactNode }) {
   if (session?.user?.id) {
     const liveUser = await getUserById(session.user.id);
     if (!liveUser) {
-      // Stale cookie: sign-out cannot write cookies during render. The guest route
-      // handler replaces the stale session with a fresh guest.
+      // Stale cookie: cookies cannot be written during render, so a route handler clears it.
       if (isAuthRequired()) {
-        redirect("/login");
+        redirect("/api/auth/clear");
       }
       redirect(`/api/auth/guest?redirectUrl=${encodeURIComponent("/")}`);
     }
